@@ -104,6 +104,12 @@ non_empty_sync_counter = Counter(
     ["type", "lazy_loaded"],
 )
 
+sync_cache_result_counter = Counter(
+    "synapse_handlers_sync_cache_result",
+    "If the sync result was claimed to be cached",
+    ["cached"]
+)
+
 # Store the cache that tracks which lazy-loaded members have been sent to a given
 # client for no more than 30 minutes.
 LAZY_LOADED_MEMBERS_CACHE_MAX_AGE = 30 * 60 * 1000
@@ -611,6 +617,7 @@ class SyncHandler:
             else:
                 lazy_loaded = "false"
             non_empty_sync_counter.labels(sync_label, lazy_loaded).inc()
+            sync_cache_result_counter.labels(cache_context.should_cache).inc()
 
         return result
 
