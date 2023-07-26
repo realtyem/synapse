@@ -1675,7 +1675,10 @@ def should_notify(
 
     if old_state.state == PresenceState.ONLINE:
         if new_state.currently_active != old_state.currently_active:
-            notify_reason_counter.labels(user_location, "current_active_change").inc()
+            # Borrow the same graph, just pad out the label to show the difference.
+            notify_reason_counter.labels(
+                user_location, f"current_active_change->{new_state.currently_active}"
+            ).inc()
             return True
 
         if (
