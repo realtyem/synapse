@@ -107,7 +107,7 @@ non_empty_sync_counter = Counter(
 sync_cache_result_counter = Counter(
     "synapse_handlers_sync_cache_result",
     "If the sync result was claimed to be cached",
-    ["cached"]
+    ["cached"],
 )
 
 # Store the cache that tracks which lazy-loaded members have been sent to a given

@@ -23,6 +23,8 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+from prometheus_client import Counter
+
 from synapse.api.constants import AccountDataTypes, EduTypes, Membership, PresenceState
 from synapse.api.errors import Codes, StoreError, SynapseError
 from synapse.api.filtering import FilterCollection
@@ -54,17 +56,20 @@ from synapse.http.servlet import (
 from synapse.http.site import SynapseRequest
 from synapse.logging.opentracing import trace_with_opname
 from synapse.rest.admin.experimental_features import ExperimentalFeature
+from synapse.rest.client._base import client_patterns, set_timeline_upper_limit
 from synapse.types import JsonDict, Requester, StreamToken
 from synapse.types.rest.client import SlidingSyncBody
 from synapse.util import json_decoder
 from synapse.util.caches.lrucache import LruCache
 
-from ._base import client_patterns, set_timeline_upper_limit
-
 if TYPE_CHECKING:
     from synapse.server import HomeServer
 
 logger = logging.getLogger(__name__)
+
+sync_presence_request_by_state_counter = Counter(
+    "sync_presence_request_by_state", "", ["requested_state", "user", "device_id"]
+)
 
 
 class SyncRestServlet(RestServlet):
@@ -229,6 +234,9 @@ class SyncRestServlet(RestServlet):
         # send any outstanding server notices to the user.
         await self._server_notices_sender.on_user_syncing(user.to_string())
 
+        sync_presence_request_by_state_counter.labels(
+            set_presence, user.to_string(), device_id
+        ).inc()
         affect_presence = set_presence != PresenceState.OFFLINE
 
         context = await self.presence_handler.user_syncing(
