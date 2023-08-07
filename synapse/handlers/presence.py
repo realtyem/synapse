@@ -153,7 +153,9 @@ notify_reason_counter = Counter(
 state_transition_counter = Counter(
     "synapse_handler_presence_state_transition", "", ["locality", "from", "to"]
 )
-
+timeout_tracking_counter = Counter(
+    "synapse_handler_presence_handle_timeout_tracking", "", ["reason"]
+)
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
 LAST_ACTIVE_GRANULARITY = 60 * 1000
@@ -1667,7 +1669,9 @@ def should_notify(
         return True
 
     if old_state.state != new_state.state:
-        notify_reason_counter.labels(user_location, "state_change").inc()
+        notify_reason_counter.labels(
+            user_location, f"state_change: {old_state.state}->{new_state.state}"
+        ).inc()
         state_transition_counter.labels(
             user_location, old_state.state, new_state.state
         ).inc()
@@ -1677,7 +1681,8 @@ def should_notify(
         if new_state.currently_active != old_state.currently_active:
             # Borrow the same graph, just pad out the label to show the difference.
             notify_reason_counter.labels(
-                user_location, f"current_active_change->{new_state.currently_active}"
+                user_location,
+                f"current_active_change: {old_state.currently_active}->{new_state.currently_active}",
             ).inc()
             return True
 
@@ -2057,6 +2062,8 @@ def handle_timeout(
     """
     if state.state == PresenceState.OFFLINE:
         # No timeouts are associated with offline states.
+        if is_mine:
+            timeout_tracking_counter.labels("Already OFFLINE no-op").inc()
         return None
 
     changed = False
@@ -2072,6 +2079,10 @@ def handle_timeout(
                     # Currently online, but last activity ages ago so auto
                     # idle
                     device_state.state = PresenceState.UNAVAILABLE
+                    timeout_tracking_counter.labels(
+                        "marking local UNAVAILABLE because last_active more than "
+                        f"{IDLE_TIMER}"
+                    ).inc()
                     device_changed = True
 
             # If there are have been no sync for a while (and none ongoing),
@@ -2093,6 +2104,9 @@ def handle_timeout(
                 )
                 if now - sync_or_active > online_timeout:
                     # Mark the device as going offline.
+                    timeout_tracking_counter.labels(
+                        "marking local OFFLINE because sync or last active timeout"
+                    ).inc()
                     offline_devices.append(device_id)
                     device_changed = True
 
@@ -2111,6 +2125,9 @@ def handle_timeout(
         if now - state.last_active_ts > LAST_ACTIVE_GRANULARITY:
             # So that we send down a notification that we've
             # stopped updating.
+            timeout_tracking_counter.labels(
+                f"last_active now greater than {LAST_ACTIVE_GRANULARITY}"
+            ).inc()
             changed = True
 
         if now - state.last_federation_update_ts > FEDERATION_PING_INTERVAL:
