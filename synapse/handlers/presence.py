@@ -156,6 +156,7 @@ state_transition_counter = Counter(
 timeout_tracking_counter = Counter(
     "synapse_handler_presence_handle_timeout_tracking", "", ["reason"]
 )
+user_sync_tracking_counter = Counter("synapse_handler_presence_user_syncing_tracker", "", ["reason"])
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
 LAST_ACTIVE_GRANULARITY = 60 * 1000
@@ -533,6 +534,7 @@ class WorkerPresenceHandler(BasePresenceHandler):
         last_sync_ms: int,
     ) -> None:
         if self._track_presence:
+            user_sync_tracking_counter.labels("syncing").inc()
             self.hs.get_replication_command_handler().send_user_sync(
                 self.instance_id, user_id, device_id, is_syncing, last_sync_ms
             )
@@ -565,6 +567,7 @@ class WorkerPresenceHandler(BasePresenceHandler):
         ):
             if now - last_sync_ms > UPDATE_SYNCING_USERS_MS:
                 self._user_devices_going_offline.pop((user_id, device_id), None)
+                user_sync_tracking_counter.labels("stopped syncing").inc()
                 self.send_user_sync(user_id, device_id, False, last_sync_ms)
 
     async def user_syncing(
