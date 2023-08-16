@@ -156,7 +156,14 @@ state_transition_counter = Counter(
 timeout_tracking_counter = Counter(
     "synapse_handler_presence_handle_timeout_tracking", "", ["reason"]
 )
-user_sync_tracking_counter = Counter("synapse_handler_presence_user_syncing_tracker", "", ["reason"])
+user_sync_tracking_counter = Counter(
+    "synapse_handler_presence_user_syncing_tracker", "", ["reason"]
+)
+federation_sending_last_active_tracker = Counter(
+    "synapse_handler_presence_federation_sending_last_active_tracker",
+    "",
+    ["ts_tolerance", "current_state", "currently_active"],
+)
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
 LAST_ACTIVE_GRANULARITY = 60 * 1000
@@ -404,6 +411,39 @@ class BasePresenceHandler(abc.ABC):
 
         if not states:
             return
+
+        # here
+        ts_tolerance = "Unknown"
+        now = self.clock.time_msec()
+        for state in states:
+            if now - state.last_active_ts < 1000:
+                ts_tolerance = "Less than 1 Second"
+            elif now - state.last_active_ts < 2000:
+                ts_tolerance = "Less than 2 Seconds"
+            elif now - state.last_active_ts < 3000:
+                ts_tolerance = "Less than 3 Seconds"
+            elif now - state.last_active_ts < 4000:
+                ts_tolerance = "Less than 4 Seconds"
+            elif now - state.last_active_ts < 5000:
+                ts_tolerance = "Less than 5 Seconds"
+            elif now - state.last_active_ts < 10 * 1000:
+                ts_tolerance = "Less than 10 Seconds"
+            elif now - state.last_active_ts < 30 * 1000:
+                ts_tolerance = "Less than 30 Seconds"
+            elif now - state.last_active_ts <= 60 * 1000:
+                ts_tolerance = "Less than 61 Seconds"
+            elif (
+                now - state.last_active_ts > 60 * 1000
+                and now - state.last_active_ts < 5 * 60 * 1000
+            ):
+                ts_tolerance = "Between 1 and 5 minutes"
+
+            elif now - state.last_active_ts >= 5 * 60 * 1000:
+                ts_tolerance = "More than 5 minutes"
+
+            federation_sending_last_active_tracker.labels(
+                ts_tolerance, state.state, state.currently_active
+            ).inc()
 
         hosts_to_states = await get_interested_remotes(
             self.store,
