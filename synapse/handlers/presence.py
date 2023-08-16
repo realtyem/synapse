@@ -158,7 +158,16 @@ state_transition_counter = Counter(
 timeout_tracking_counter = Counter(
     "synapse_handler_presence_handle_timeout_tracking", "", ["reason"]
 )
-user_sync_tracking_counter = Counter("synapse_handler_presence_user_syncing_tracker", "", ["reason"])
+user_sync_tracking_counter = Counter(
+    "synapse_handler_presence_user_syncing_tracker", "", ["reason"]
+)
+maybe_not_needed_updates_tracker = Counter(
+    "synapse_handler_presence_maybe_not_needed", "", ["locality", "reason"]
+)
+delayed_persisting_of_presence_state = Counter(
+    "synapse_handler_presence_delayed_persist_state", ""
+)
+
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
 LAST_ACTIVE_GRANULARITY = 60 * 1000
