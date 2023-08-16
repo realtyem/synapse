@@ -191,6 +191,12 @@ sent_pdus_destination_dist_total = Counter(
     "Total number of PDUs queued for sending across all destinations",
 )
 
+federation_sending_last_active_tracker = Counter(
+    "synapse_handler_presence_federation_sending_last_active_tracker",
+    "",
+    ["ts_tolerance", "current_state", "currently_active"],
+)
+
 # Time (in s) to wait before trying to wake up destinations that have
 # catch-up outstanding.
 # Please note that rate limiting still applies, so while the loop is
@@ -855,6 +861,36 @@ class FederationSender(AbstractFederationSender):
         # Ensure we only send out presence states for local users.
         for state in states:
             assert self.is_mine_id(state.user_id)
+
+        # here
+        ts_tolerance = "Unknown"
+        now = self.clock.time_msec()
+        for state in states:
+            if now - state.last_active_ts < 1000:
+                ts_tolerance = "Less than 1 Second"
+            elif now - state.last_active_ts < 2000:
+                ts_tolerance = "Less than 2 Seconds"
+            elif now - state.last_active_ts < 3000:
+                ts_tolerance = "Less than 3 Seconds"
+            elif now - state.last_active_ts < 4000:
+                ts_tolerance = "Less than 4 Seconds"
+            elif now - state.last_active_ts < 5000:
+                ts_tolerance = "Less than 5 Seconds"
+            elif now - state.last_active_ts < 10 * 1000:
+                ts_tolerance = "Less than 10 Seconds"
+            elif now - state.last_active_ts < 30 * 1000:
+                ts_tolerance = "Less than 30 Seconds"
+            elif now - state.last_active_ts <= 60 * 1000:
+                ts_tolerance = "Less than 61 Seconds"
+            elif 60 * 1000 < now - state.last_active_ts < 5 * 60 * 1000:
+                ts_tolerance = "Between 1 and 5 minutes"
+
+            elif now - state.last_active_ts >= 5 * 60 * 1000:
+                ts_tolerance = "More than 5 minutes"
+
+            federation_sending_last_active_tracker.labels(
+                ts_tolerance, state.state, state.currently_active
+            ).inc()
 
         destinations = await filter_destinations_by_retry_limiter(
             [
