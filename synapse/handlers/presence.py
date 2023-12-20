@@ -170,6 +170,9 @@ delayed_persisting_of_presence_state = Counter(
 maybe_not_needed_updates_tracker = Counter(
     "synapse_handler_presence_maybe_not_needed", "", ["locality", "reason"]
 )
+delayed_persisting_of_presence_state = Counter(
+    "synapse_handler_presence_delayed_persist_state", ""
+)
 
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
@@ -921,6 +924,9 @@ class PresenceHandler(BasePresenceHandler):
                     for user_id in self.unpersisted_users_changes
                 ]
             )
+            delayed_persisting_of_presence_state.inc(
+                len(self.unpersisted_users_changes)
+            )
         logger.info("Finished _on_shutdown")
 
     @wrap_as_background_process("persist_presence_changes")
@@ -936,6 +942,7 @@ class PresenceHandler(BasePresenceHandler):
             await self.store.update_presence(
                 [self.user_to_current_state[user_id] for user_id in unpersisted]
             )
+            delayed_persisting_of_presence_state.inc(len(unpersisted))
 
     async def _update_states(
         self,
