@@ -802,18 +802,6 @@ class PresenceHandler(BasePresenceHandler):
                         then=state.last_federation_update_ts + FEDERATION_TIMEOUT,
                     )
 
-        # Set of users who have presence in the `user_to_current_state` that
-        # have not yet been persisted
-        self.unpersisted_users_changes: Set[str] = set()
-
-        hs.get_reactor().addSystemEventTrigger(
-            "before",
-            "shutdown",
-            run_as_background_process,
-            "presence.on_shutdown",
-            self._on_shutdown,
-        )
-
         # Keeps track of the number of *ongoing* syncs on this process. While
         # this is non zero a user will never go offline.
         self._user_device_to_num_current_syncs: Dict[
@@ -845,16 +833,6 @@ class PresenceHandler(BasePresenceHandler):
                 30, self.clock.looping_call, self._handle_timeouts, 5000
             )
 
-        # Presence information is persisted, whether or not it is being tracked
-        # internally.
-        if self._presence_enabled:
-            self.clock.call_later(
-                60,
-                self.clock.looping_call,
-                self._persist_unpersisted_changes,
-                60 * 1000,
-            )
-
         LaterGauge(
             "synapse_handlers_presence_wheel_timer_size",
             "",
@@ -870,48 +848,6 @@ class PresenceHandler(BasePresenceHandler):
         # stream from the current state when we restart.
         self._event_pos = self.store.get_room_max_stream_ordering()
         self._event_processing = False
-
-    async def _on_shutdown(self) -> None:
-        """Gets called when shutting down. This lets us persist any updates that
-        we haven't yet persisted, e.g. updates that only changes some internal
-        timers. This allows changes to persist across startup without having to
-        persist every single change.
-
-        If this does not run it simply means that some of the timers will fire
-        earlier than they should when synapse is restarted. This affect of this
-        is some spurious presence changes that will self-correct.
-        """
-        # If the DB pool has already terminated, don't try updating
-        if not self.store.db_pool.is_running():
-            return
-
-        logger.info(
-            "Performing _on_shutdown. Persisting %d unpersisted changes",
-            len(self.user_to_current_state),
-        )
-
-        if self.unpersisted_users_changes:
-            await self.store.update_presence(
-                [
-                    self.user_to_current_state[user_id]
-                    for user_id in self.unpersisted_users_changes
-                ]
-            )
-        logger.info("Finished _on_shutdown")
-
-    @wrap_as_background_process("persist_presence_changes")
-    async def _persist_unpersisted_changes(self) -> None:
-        """We periodically persist the unpersisted changes, as otherwise they
-        may stack up and slow down shutdown times.
-        """
-        unpersisted = self.unpersisted_users_changes
-        self.unpersisted_users_changes = set()
-
-        if unpersisted:
-            logger.info("Persisting %d unpersisted presence updates", len(unpersisted))
-            await self.store.update_presence(
-                [self.user_to_current_state[user_id] for user_id in unpersisted]
-            )
 
     async def _update_states(
         self,
