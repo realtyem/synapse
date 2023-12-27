@@ -991,9 +991,6 @@ class PresenceHandler(BasePresenceHandler):
                 notified_presence_counter.inc(len(to_notify))
                 await self._persist_and_notify(list(to_notify.values()))
 
-            self.unpersisted_users_changes |= {s.user_id for s in new_states}
-            self.unpersisted_users_changes -= set(to_notify.keys())
-
             # Check if we need to resend any presence states to remote hosts. We
             # only do this for states that haven't been updated in a while to
             # ensure that the remote host doesn't time the presence state out.
