@@ -502,6 +502,10 @@ class WorkerPresenceHandler(BasePresenceHandler):
         # syncing but we haven't notified the presence writer of that yet
         self._user_devices_going_offline: Dict[Tuple[str, Optional[str]], int] = {}
 
+        # Keep track of the last time a USER_SYNC was sent to the presence writer, as
+        # not sending one at least every 5 minutes means excessive timeout processing.
+        self._last_user_sync_sent_ms = 0
+
         self._bump_active_client = ReplicationBumpPresenceActiveTime.make_client(hs)
         self._set_state_client = ReplicationPresenceSetState.make_client(hs)
 
@@ -534,16 +538,26 @@ class WorkerPresenceHandler(BasePresenceHandler):
             self.hs.get_replication_command_handler().send_user_sync(
                 self.instance_id, user_id, device_id, is_syncing, last_sync_ms
             )
+            # last_sync_ms was just set and passed into this function, use that as it
+            # should be close enough to now.
+            self._last_user_sync_sent_ms = last_sync_ms
 
     def mark_as_coming_online(self, user_id: str, device_id: Optional[str]) -> None:
         """A user/device is syncing. Send a UserSync to the presence writer,
         unless they had recently stopped syncing.
         """
+        now = self.clock.time_msec()
         going_offline = self._user_devices_going_offline.pop((user_id, device_id), None)
         if not going_offline:
             # if going_offline is None, then this is the first sync of this session.
             # Always send this to establish the timeout entries for the presence writer.
-            self.send_user_sync(user_id, device_id, True, self.clock.time_msec())
+            self.send_user_sync(user_id, device_id, True, now)
+        else:
+            # The presence writer already knows this user/device exists, only need to
+            # bump the expiration timer for the external process(this one).
+            # Use 75% of the EXTERNAL_PROCESS_EXPIRY to avoid spamming the network.
+            if now - self._last_user_sync_sent_ms > EXTERNAL_PROCESS_EXPIRY * 0.75:
+                self.send_user_sync(user_id, device_id, True, now)
 
     def mark_as_going_offline(self, user_id: str, device_id: Optional[str]) -> None:
         """A user has stopped syncing. We wait before notifying the presence
