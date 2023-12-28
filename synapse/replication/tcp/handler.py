@@ -803,7 +803,7 @@ class ReplicationCommandHandler:
         is_syncing: bool,
         last_sync_ms: int,
     ) -> None:
-        """Poke the master that a user has started/stopped syncing."""
+        """Poke the master that a user is/has stopped syncing."""
         self.send_command(
             UserSyncCommand(instance_id, user_id, device_id, is_syncing, last_sync_ms)
         )

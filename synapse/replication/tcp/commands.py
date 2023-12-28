@@ -263,11 +263,11 @@ class ReplicateCommand(Command):
 
 
 class UserSyncCommand(Command):
-    """Sent by the client to inform the server that a user has started or
+    """Sent by the client to inform the server that a user is syncing or
     stopped syncing on this process.
 
     This is used by the process handling presence (typically the master) to
-    calculate who is online and who is not.
+    calculate who is online, who is not and if the external syncing process has died.
 
     Includes a timestamp of when the last user sync was.
 
@@ -275,7 +275,7 @@ class UserSyncCommand(Command):
 
         USER_SYNC <instance_id> <user_id> <state> <last_sync_ms>
 
-    Where <state> is either "start" or "end"
+    Where <state> is either "syncing" or "end"
     """
 
     __slots__ = ["instance_id", "user_id", "device_id", "is_syncing", "last_sync_ms"]
@@ -304,10 +304,12 @@ class UserSyncCommand(Command):
         if device_id == "None":
             device_id = None
 
-        if state not in ("start", "end"):
+        if state not in ("syncing", "end"):
             raise Exception("Invalid USER_SYNC state %r" % (state,))
 
-        return cls(instance_id, user_id, device_id, state == "start", int(last_sync_ms))
+        return cls(
+            instance_id, user_id, device_id, state == "syncing", int(last_sync_ms)
+        )
 
     def to_line(self) -> str:
         return " ".join(
@@ -315,7 +317,7 @@ class UserSyncCommand(Command):
                 self.instance_id,
                 self.user_id,
                 str(self.device_id),
-                "start" if self.is_syncing else "end",
+                "syncing" if self.is_syncing else "end",
                 str(self.last_sync_ms),
             )
         )
