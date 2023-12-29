@@ -835,6 +835,12 @@ class PresenceHandler(BasePresenceHandler):
         ] = {}
         self.external_process_last_updated_ms: Dict[str, int] = {}
 
+        # A reverse lookup for external_proces_to_current_syncs, allowing easy
+        # non-iterative lookup of instance_id by user/device
+        self.current_syncs_to_external_process: Dict[
+            Tuple[str, Optional[str]], str
+        ] = {}
+
         self.external_sync_linearizer = Linearizer(name="external_sync_linearizer")
 
         if self._track_presence:
@@ -1223,6 +1229,15 @@ class PresenceHandler(BasePresenceHandler):
             # every sync, not just the last in-flight sync.
             if is_syncing and (user_id, device_id) not in process_presence:
                 process_presence.add((user_id, device_id))
+                if process_id != self.current_syncs_to_external_process.get(
+                    (user_id, device_id), None
+                ):
+                    # The possibility exists for more than one sync handler process, if
+                    # it migrates, make sure it is up-to-date.
+                    self.current_syncs_to_external_process[
+                        (user_id, device_id)
+                    ] = process_id
+
             elif not is_syncing and (user_id, device_id) in process_presence:
                 devices = self._user_to_device_to_current_state.setdefault(user_id, {})
                 device_state = devices.setdefault(
@@ -1236,6 +1251,7 @@ class PresenceHandler(BasePresenceHandler):
                 await self._update_states([new_state])
 
                 process_presence.discard((user_id, device_id))
+                self.current_syncs_to_external_process.pop((user_id, device_id))
 
             self.external_process_last_updated_ms[process_id] = self.clock.time_msec()
 
@@ -1412,6 +1428,20 @@ class PresenceHandler(BasePresenceHandler):
         else:
             # Syncs do not override the status message.
             new_fields["status_msg"] = status_msg
+
+        if is_sync:
+            # Use this opportunity to update the timeout for the sync handler, as the
+            # user is probably syncing.
+            instance_id = self.current_syncs_to_external_process.get(
+                (user_id, device_id), None
+            )
+
+            # Redis replication happens after HTTP replication, so it's possible this is
+            # None. That is ok, as it's purpose is handled and set in
+            # update_external_syncs_row() instead. This *is* just an update and has 5
+            # minutes from the last user that came online.
+            if instance_id:
+                self.external_process_last_updated_ms[instance_id] = now
 
         await self._update_states(
             [prev_state.copy_and_replace(**new_fields)], force_notify=force_notify
