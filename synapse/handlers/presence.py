@@ -825,15 +825,12 @@ class PresenceHandler(BasePresenceHandler):
         # While any sync is ongoing on another process the user's device will never
         # go offline.
         #
-        # Each process has a unique identifier and an update frequency. If
-        # no update is received from that process within the update period then
-        # we assume that all the sync requests on that process have stopped.
-        # Stored as a dict from process_id to set of (user_id, device_id), and
-        # a dict of process_id to millisecond timestamp last updated.
+        # Each process has a unique identifier and an update frequency. Track this
+        # as an easy way to remove users that need to be timed out.
+        # Stored as a dict from process_id to set of (user_id, device_id).
         self.external_process_to_current_syncs: Dict[
             str, Set[Tuple[str, Optional[str]]]
         ] = {}
-        self.external_process_last_updated_ms: Dict[str, int] = {}
 
         self.external_sync_linearizer = Linearizer(name="external_sync_linearizer")
 
@@ -1218,8 +1215,6 @@ class PresenceHandler(BasePresenceHandler):
 
                 process_presence.discard((user_id, device_id))
 
-            self.external_process_last_updated_ms[process_id] = self.clock.time_msec()
-
     async def update_external_syncs_clear(self, process_id: str) -> None:
         """Marks all users that had been marked as syncing by a given process
         as offline.
@@ -1254,7 +1249,6 @@ class PresenceHandler(BasePresenceHandler):
                     for prev_state in prev_states.values()
                 ]
             )
-            self.external_process_last_updated_ms.pop(process_id, None)
 
     async def _persist_and_notify(self, states: List[UserPresenceState]) -> None:
         """Persist states in the database, poke the notifier and send to
