@@ -1033,25 +1033,6 @@ class PresenceHandler(BasePresenceHandler):
         # take any action.
         users_to_check = set(self.wheel_timer.fetch(now))
 
-        # Check whether the lists of syncing processes from an external
-        # process have expired.
-        expired_process_ids = [
-            process_id
-            for process_id, last_update in self.external_process_last_updated_ms.items()
-            if now - last_update > EXTERNAL_PROCESS_EXPIRY
-        ]
-        for process_id in expired_process_ids:
-            # For each expired process drop tracking info and check the users
-            # that were syncing on that process to see if they need to be timed
-            # out.
-            users_to_check.update(
-                user_id
-                for user_id, device_id in self.external_process_to_current_syncs.pop(
-                    process_id, ()
-                )
-            )
-            self.external_process_last_updated_ms.pop(process_id)
-
         states = [
             self.user_to_current_state.get(user_id, UserPresenceState.default(user_id))
             for user_id in users_to_check
