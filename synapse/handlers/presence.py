@@ -167,6 +167,9 @@ maybe_not_needed_updates_tracker = Counter(
 delayed_persisting_of_presence_state = Counter(
     "synapse_handler_presence_delayed_persist_state", ""
 )
+maybe_not_needed_updates_tracker = Counter(
+    "synapse_handler_presence_maybe_not_needed", "", ["locality", "reason"]
+)
 
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
@@ -681,6 +684,11 @@ class WorkerPresenceHandler(BasePresenceHandler):
             is_mine = self.is_mine_id(new_state.user_id)
             if not old_state or should_notify(old_state, new_state, is_mine):
                 state_to_notify.append(new_state)
+            else:
+                maybe_not_needed_updates_tracker.labels(
+                    "local" if is_mine else "remote",
+                    "no previous state or should_notify denied",
+                ).inc()
 
         stream_id = token
         await self.notify_from_replication(state_to_notify, stream_id)
