@@ -167,12 +167,6 @@ maybe_not_needed_updates_tracker = Counter(
 delayed_persisting_of_presence_state = Counter(
     "synapse_handler_presence_delayed_persist_state", ""
 )
-maybe_not_needed_updates_tracker = Counter(
-    "synapse_handler_presence_maybe_not_needed", "", ["locality", "reason"]
-)
-delayed_persisting_of_presence_state = Counter(
-    "synapse_handler_presence_delayed_persist_state", ""
-)
 
 # If a user was last active in the last LAST_ACTIVE_GRANULARITY, consider them
 # "currently_active"
