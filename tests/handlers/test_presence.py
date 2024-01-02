@@ -1179,22 +1179,6 @@ class PresenceHandlerTestCase(BaseMultiWorkerStreamTestCase):
             )
             self.assertEqual(state.state, expected_state_1)
 
-        # When testing with workers, make another random sync (with any *different*
-        # user) to keep the process information from expiring.
-        #
-        # This is due to EXTERNAL_PROCESS_EXPIRY being equivalent to IDLE_TIMER.
-        if test_with_workers:
-            with self.get_success(
-                worker_presence_handler.user_syncing(
-                    f"@other-user:{self.hs.config.server.server_name}",
-                    "dev-3",
-                    affect_presence=True,
-                    presence_state=PresenceState.ONLINE,
-                ),
-                by=0.01,
-            ):
-                pass
-
         # 5. Advance such that the first device should be discarded (the idle timer),
         # then pump so _handle_timeouts function to called.
         self.reactor.advance(IDLE_TIMER / 1000 / 2)
