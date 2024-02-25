@@ -97,8 +97,10 @@ FT = TypeVar("FT", bound=Callable[..., Any])
 # Key and Value type for the cache
 KT = TypeVar("KT")
 VT = TypeVar("VT")
+# Extra Index type, allowing another option beyond KT
+EIT = TypeVar("EIT")
 
-# a general type var, distinct from either KT or VT
+# a general type var, distinct from either KT, VT or EIT
 T = TypeVar("T")
 
 
@@ -387,7 +389,7 @@ class LruCache(Generic[KT, VT]):
         apply_cache_factor_from_config: bool = True,
         clock: Optional[Clock] = None,
         prune_unread_entries: bool = True,
-        extra_index_cb: Optional[Callable[[KT, VT], KT]] = None,
+        extra_index_cb: Optional[Callable[[KT, VT], Union[VT, EIT]]] = None,
     ):
         """
         Args:
@@ -479,7 +481,7 @@ class LruCache(Generic[KT, VT]):
 
         lock = threading.Lock()
 
-        extra_index: Dict[KT, Set[KT]] = {}
+        extra_index: Dict[Union[VT, EIT], Set[KT]] = {}
 
         def evict() -> None:
             while cache_len() > self.max_size:
@@ -783,7 +785,23 @@ class LruCache(Generic[KT, VT]):
             return key in cache
 
         @synchronized
-        def cache_invalidate_on_extra_index(index_key: KT) -> None:
+        def cache_get_from_extra_index(
+            index_key: Union[VT, EIT],
+        ) -> Optional[Set[KT]]:
+            """
+            Retrieve all entries based on the extra index. This will return the keys
+            allocated by the extra index cb and will not update the metrics, as the
+            values themselves are not returned.
+
+            This can only be called when `extra_index_cd` was specified.
+            """
+            assert extra_index_cb is not None
+
+            extra_index_keys = extra_index.get(index_key, None)
+            return extra_index_keys
+
+        @synchronized
+        def cache_invalidate_on_extra_index(index_key: Union[VT, EIT]) -> None:
             """Invalidates all entries that match the given extra index key.
 
             This can only be called when `extra_index_cb` was specified.
@@ -820,6 +838,7 @@ class LruCache(Generic[KT, VT]):
         self.len = synchronized(cache_len)
         self.contains = cache_contains
         self.clear = cache_clear
+        self.get_from_extra_index = cache_get_from_extra_index
         self.invalidate_on_extra_index = cache_invalidate_on_extra_index
 
     def __getitem__(self, key: KT) -> VT:
@@ -914,7 +933,7 @@ class AsyncLruCache(Generic[KT, VT]):
         # This method should invalidate any external cache and then invalidate the LruCache.
         return self._lru_cache.invalidate(key)
 
-    def invalidate_on_extra_index_local(self, index_key: KT) -> None:
+    def invalidate_on_extra_index_local(self, index_key: Union[VT, EIT]) -> None:
         self._lru_cache.invalidate_on_extra_index(index_key)
 
     def invalidate_local(self, key: KT) -> None:

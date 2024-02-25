@@ -387,30 +387,118 @@ class MemoryEvictionTestCase(unittest.HomeserverTestCase):
 
 class ExtraIndexLruCacheTestCase(unittest.HomeserverTestCase):
     def test_invalidate_simple(self) -> None:
-        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: str(v))
+        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: v)
         cache["key1"] = 1
         cache["key2"] = 2
 
-        cache.invalidate_on_extra_index("key1")
+        cache.invalidate_on_extra_index(3)
         self.assertEqual(cache.get("key1"), 1)
         self.assertEqual(cache.get("key2"), 2)
 
-        cache.invalidate_on_extra_index("1")
+        cache.invalidate_on_extra_index(1)
         self.assertEqual(cache.get("key1"), None)
         self.assertEqual(cache.get("key2"), 2)
 
+        cache_2: LruCache[str, str] = LruCache(10, extra_index_cb=lambda k, v: v)
+        cache_2["key1"] = "1"
+        cache_2["key2"] = "2"
+
+        cache_2.invalidate_on_extra_index("key3")
+        self.assertEqual(cache_2.get("key1"), "1")
+        self.assertEqual(cache_2.get("key2"), "2")
+
+        cache_2.invalidate_on_extra_index("1")
+        self.assertEqual(cache_2.get("key1"), None)
+        self.assertEqual(cache_2.get("key2"), "2")
+
     def test_invalidate_multi(self) -> None:
-        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: str(v))
+        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: v)
         cache["key1"] = 1
         cache["key2"] = 1
         cache["key3"] = 2
 
-        cache.invalidate_on_extra_index("key1")
+        cache.invalidate_on_extra_index(3)
         self.assertEqual(cache.get("key1"), 1)
         self.assertEqual(cache.get("key2"), 1)
         self.assertEqual(cache.get("key3"), 2)
 
-        cache.invalidate_on_extra_index("1")
+        cache.invalidate_on_extra_index(1)
         self.assertEqual(cache.get("key1"), None)
         self.assertEqual(cache.get("key2"), None)
         self.assertEqual(cache.get("key3"), 2)
+
+        cache_2: LruCache[str, str] = LruCache(10, extra_index_cb=lambda k, v: v)
+        cache_2["key1"] = "1"
+        cache_2["key2"] = "1"
+        cache_2["key3"] = "2"
+
+        cache_2.invalidate_on_extra_index("key3")
+        self.assertEqual(cache_2.get("key1"), "1")
+        self.assertEqual(cache_2.get("key2"), "1")
+        self.assertEqual(cache_2.get("key3"), "2")
+
+        cache_2.invalidate_on_extra_index("1")
+        self.assertEqual(cache_2.get("key1"), None)
+        self.assertEqual(cache_2.get("key2"), None)
+        self.assertEqual(cache_2.get("key3"), "2")
+
+    def test_get_from_extra_index(self) -> None:
+        """
+        Test a str -> str extra index lookup
+        """
+        cache: LruCache[str, str] = LruCache(10, extra_index_cb=lambda k, v: v)
+        cache["key1"] = "1"
+        cache["key2"] = "1"
+        cache["key3"] = "2"
+        cache["key4"] = "2"
+        cache["key5"] = "3"
+
+        keys_from_extra_index = cache.get_from_extra_index("key1")
+        self.assertEqual(keys_from_extra_index, None)
+
+        keys_from_extra_index = cache.get_from_extra_index("1")
+        self.assertEqual(keys_from_extra_index, {"key1", "key2"})
+
+        keys_from_extra_index = cache.get_from_extra_index("2")
+        self.assertEqual(keys_from_extra_index, {"key3", "key4"})
+
+        keys_from_extra_index = cache.get_from_extra_index("3")
+        self.assertEqual(keys_from_extra_index, {"key5"})
+
+    def test_get_from_extra_index_using_int(self) -> None:
+        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: v)
+        cache["key1"] = 1
+        cache["key2"] = 1
+        cache["key3"] = 2
+        cache["key4"] = 2
+        cache["key5"] = 3
+
+        keys_from_extra_index = cache.get_from_extra_index(4)
+        self.assertEqual(keys_from_extra_index, None)
+
+        keys_from_extra_index = cache.get_from_extra_index(1)
+        self.assertEqual(keys_from_extra_index, {"key1", "key2"})
+
+        keys_from_extra_index = cache.get_from_extra_index(2)
+        self.assertEqual(keys_from_extra_index, {"key3", "key4"})
+
+        keys_from_extra_index = cache.get_from_extra_index(3)
+        self.assertEqual(keys_from_extra_index, {"key5"})
+
+    def test_get_from_extra_index_after_del(self) -> None:
+        cache: LruCache[str, int] = LruCache(10, extra_index_cb=lambda k, v: v)
+        cache["key1"] = 1
+        cache["key2"] = 1
+        cache["key3"] = 2
+        cache["key4"] = 2
+
+        keys_from_extra_index = cache.get_from_extra_index(1)
+        self.assertEqual(keys_from_extra_index, {"key1", "key2"})
+
+        cache.pop("key1")
+        keys_from_extra_index = cache.get_from_extra_index(1)
+        self.assertEqual(keys_from_extra_index, {"key2"})
+
+        cache.pop("key2")
+        keys_from_extra_index = cache.get_from_extra_index(1)
+        self.assertEqual(keys_from_extra_index, None)
