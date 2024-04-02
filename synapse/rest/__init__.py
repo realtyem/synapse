@@ -53,7 +53,7 @@ from synapse.rest.client import (
     register,
     relations,
     rendezvous,
-    report_event,
+    reporting,
     room,
     room_keys,
     room_upgrade_rest_servlet,
@@ -128,7 +128,7 @@ class ClientRestResource(JsonResource):
         tags.register_servlets(hs, client_resource)
         account_data.register_servlets(hs, client_resource)
         if is_main_process:
-            report_event.register_servlets(hs, client_resource)
+            reporting.register_servlets(hs, client_resource)
             openid.register_servlets(hs, client_resource)
         notifications.register_servlets(hs, client_resource)
         devices.register_servlets(hs, client_resource)
@@ -145,6 +145,10 @@ class ClientRestResource(JsonResource):
         password_policy.register_servlets(hs, client_resource)
         knock.register_servlets(hs, client_resource)
         appservice_ping.register_servlets(hs, client_resource)
+        if hs.config.media.can_load_media_repo:
+            from synapse.rest.client import media
+
+            media.register_servlets(hs, client_resource)
 
         # moving to /_synapse/admin
         if is_main_process:

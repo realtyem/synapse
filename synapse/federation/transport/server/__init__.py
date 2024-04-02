@@ -32,6 +32,8 @@ from synapse.federation.transport.server._base import (
 from synapse.federation.transport.server.federation import (
     FEDERATION_SERVLET_CLASSES,
     FederationAccountStatusServlet,
+    FederationMediaDownloadServlet,
+    FederationMediaThumbnailServlet,
     FederationUnstableClientKeysClaimServlet,
 )
 from synapse.http.server import HttpServer, JsonResource
@@ -314,6 +316,13 @@ def register_servlets(
                 and not hs.config.experimental.msc3983_appservice_otk_claims
             ):
                 continue
+
+            if (
+                servletclass == FederationMediaDownloadServlet
+                or servletclass == FederationMediaThumbnailServlet
+            ):
+                if not hs.config.media.can_load_media_repo:
+                    continue
 
             servletclass(
                 hs=hs,

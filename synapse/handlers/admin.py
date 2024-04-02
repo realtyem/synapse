@@ -125,13 +125,7 @@ class AdminHandler:
         # Get all rooms the user is in or has been in
         rooms = await self._store.get_rooms_for_local_user_where_membership_is(
             user_id,
-            membership_list=(
-                Membership.JOIN,
-                Membership.LEAVE,
-                Membership.BAN,
-                Membership.INVITE,
-                Membership.KNOCK,
-            ),
+            membership_list=Membership.LIST,
         )
 
         # We only try and fetch events for rooms the user has been in. If
@@ -178,7 +172,7 @@ class AdminHandler:
             if room.membership == Membership.JOIN:
                 stream_ordering = self._store.get_room_max_stream_ordering()
             else:
-                stream_ordering = room.stream_ordering
+                stream_ordering = room.event_pos.stream
 
             from_key = RoomStreamToken(topological=0, stream=0)
             to_key = RoomStreamToken(stream=stream_ordering)
@@ -217,7 +211,9 @@ class AdminHandler:
                 )
 
                 events = await filter_events_for_client(
-                    self._storage_controllers, user_id, events
+                    self._storage_controllers,
+                    user_id,
+                    events,
                 )
 
                 writer.write_events(room_id, events)

@@ -676,8 +676,8 @@ This setting has the following sub-options:
     trailing 's'.
 * `app_name`: `app_name` defines the default value for '%(app)s' in `notif_from` and email
    subjects. It defaults to 'Matrix'.
-* `enable_notifs`: Set to true to enable sending emails for messages that the user
-   has missed. Disabled by default.
+* `enable_notifs`: Set to true to allow users to receive e-mail notifications. If this is not set,
+    users can configure e-mail notifications but will not receive them. Disabled by default.
 * `notif_for_new_users`: Set to false to disable automatic subscription to email
    notifications for new users. Enabled by default.
 * `notif_delay_before_mail`: The time to wait before emailing about a notification.
@@ -1232,6 +1232,31 @@ federation_domain_whitelist:
   - syd.example.com
 ```
 ---
+### `federation_whitelist_endpoint_enabled`
+
+Enables an endpoint for fetching the federation whitelist config.
+
+The request method and path is `GET /_synapse/client/v1/config/federation_whitelist`, and the
+response format is:
+
+```json
+{
+    "whitelist_enabled": true,  // Whether the federation whitelist is being enforced
+    "whitelist": [  // Which server names are allowed by the whitelist
+        "example.com"
+    ]
+}
+```
+
+If `whitelist_enabled` is `false` then the server is permitted to federate with all others.
+
+The endpoint requires authentication.
+
+Example configuration:
+```yaml
+federation_whitelist_endpoint_enabled: true
+```
+---
 ### `federation_metrics_domains`
 
 Report prometheus metrics on the age of PDUs being sent to and received from
@@ -1317,6 +1342,12 @@ Options related to caching.
 The number of events to cache in memory. Defaults to 10K. Like other caches,
 this is affected by `caches.global_factor` (see below).
 
+For example, the default is 10K and the global_factor default is 0.5.
+
+Since 10K * 0.5 is 5K then the event cache size will be 5K.
+
+The cache affected by this configuration is named as "*getEvent*".
+
 Note that this option is not part of the `caches` section.
 
 Example configuration:
@@ -1341,6 +1372,8 @@ number of entries that can be stored.
   setting through the config file.
 
   Defaults to 0.5, which will halve the size of all caches.
+
+  Note that changing this value also affects the HTTP connection pool.
 
 * `per_cache_factors`: A dictionary of cache name to cache factor for that individual
    cache. Overrides the global cache factor for a given cache.
@@ -1726,8 +1759,9 @@ rc_3pid_validation:
 ### `rc_invites`
 
 This option sets ratelimiting how often invites can be sent in a room or to a
-specific user. `per_room` defaults to `per_second: 0.3`, `burst_count: 10` and
-`per_user` defaults to `per_second: 0.003`, `burst_count: 5`.
+specific user. `per_room` defaults to `per_second: 0.3`, `burst_count: 10`,
+`per_user` defaults to `per_second: 0.003`, `burst_count: 5`, and `per_issuer` 
+defaults to `per_second: 0.3`, `burst_count: 10`.
 
 Client requests that invite user(s) when [creating a
 room](https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3createroom)
@@ -1913,6 +1947,24 @@ Example configuration:
 max_image_pixels: 35M
 ```
 ---
+### `remote_media_download_burst_count`
+
+Remote media downloads are ratelimited using a [leaky bucket algorithm](https://en.wikipedia.org/wiki/Leaky_bucket), where a given "bucket" is keyed to the IP address of the requester when requesting remote media downloads. This configuration option sets the size of the bucket against which the size in bytes of downloads are penalized - if the bucket is full, ie a given number of bytes have already been downloaded, further downloads will be denied until the bucket drains.  Defaults to 500MiB. See also `remote_media_download_per_second` which determines the rate at which the "bucket" is emptied and thus has available space to authorize new requests.  
+
+Example configuration:
+```yaml
+remote_media_download_burst_count: 200M
+```
+---
+### `remote_media_download_per_second`
+
+Works in conjunction with `remote_media_download_burst_count` to ratelimit remote media downloads - this configuration option determines the rate at which the "bucket" (see above) leaks in bytes per second. As requests are made to download remote media, the size of those requests in bytes is added to the bucket, and once the bucket has reached it's capacity, no more requests will be allowed until a number of bytes has "drained" from the bucket. This setting determines the rate at which bytes drain from the bucket, with the practical effect that the larger the number, the faster the bucket leaks, allowing for more bytes downloaded over a shorter period of time. Defaults to 87KiB per second. See also `remote_media_download_burst_count`.
+
+Example configuration:
+```yaml
+remote_media_download_per_second: 40K
+```
+---
 ### `prevent_media_downloads_from`
 
 A list of domains to never download media from. Media from these
@@ -1924,9 +1976,10 @@ This will not prevent the listed domains from accessing media themselves.
 It simply prevents users on this server from downloading media originating
 from the listed servers.
 
-This will have no effect on media originating from the local server.
-This only affects media downloaded from other Matrix servers, to
-block domains from URL previews see [`url_preview_url_blacklist`](#url_preview_url_blacklist).
+This will have no effect on media originating from the local server. This only
+affects media downloaded from other Matrix servers, to control URL previews see
+[`url_preview_ip_range_blacklist`](#url_preview_ip_range_blacklist) or
+[`url_preview_url_blacklist`](#url_preview_url_blacklist).
 
 Defaults to an empty list (nothing blocked).
 
@@ -2078,12 +2131,14 @@ url_preview_ip_range_whitelist:
 ---
 ### `url_preview_url_blacklist`
 
-Optional list of URL matches that the URL preview spider is
-denied from accessing.  You should use `url_preview_ip_range_blacklist`
-in preference to this, otherwise someone could define a public DNS
-entry that points to a private IP address and circumvent the blacklist.
-This is more useful if you know there is an entire shape of URL that
-you know that will never want synapse to try to spider.
+Optional list of URL matches that the URL preview spider is denied from
+accessing.  This is a usability feature, not a security one. You should use
+`url_preview_ip_range_blacklist` in preference to this, otherwise someone could
+define a public DNS entry that points to a private IP address and circumvent
+the blacklist. Applications that perform redirects or serve different content
+when detecting that Synapse is accessing them can also bypass the blacklist.
+This is more useful if you know there is an entire shape of URL that you know
+that you do not want Synapse to preview.
 
 Each list entry is a dictionary of url component attributes as returned
 by urlparse.urlsplit as applied to the absolute form of the URL.  See
@@ -2583,6 +2638,11 @@ Possible values for this option are:
 * "trusted_private_chat": an invitation is required to join this room and the invitee is
   assigned a power level of 100 upon joining the room.
 
+Each preset will set up a room in the same manner as if it were provided as the `preset` parameter when
+calling the
+[`POST /_matrix/client/v3/createRoom`](https://spec.matrix.org/latest/client-server-api/#post_matrixclientv3createroom)
+Client-Server API endpoint.
+
 If a value of "private_chat" or "trusted_private_chat" is used then
 `auto_join_mxid_localpart` must also be configured.
 
@@ -2662,7 +2722,7 @@ Example configuration:
 session_lifetime: 24h
 ```
 ---
-### `refresh_access_token_lifetime`
+### `refreshable_access_token_lifetime`
 
 Time that an access token remains valid for, if the session is using refresh tokens.
 
@@ -3520,6 +3580,15 @@ Has the following sub-options:
    users. This allows the CAS SSO flow to be limited to sign in only, rather than
    automatically registering users that have a valid SSO login but do not have
    a pre-registered account. Defaults to true.
+* `allow_numeric_ids`: set to 'true' allow numeric user IDs (default false).
+   This allows CAS SSO flow to provide user IDs composed of numbers only.
+   These identifiers will be prefixed by the letter "u" by default.
+   The prefix can be configured using the "numeric_ids_prefix" option.
+   Be careful to choose the prefix correctly to avoid any possible conflicts
+   (e.g. user 1234 becomes u1234 when a user u1234 already exists).
+* `numeric_ids_prefix`: the prefix you wish to add in front of a numeric user ID
+   when the "allow_numeric_ids" option is set to "true".
+   By default, the prefix is the letter "u" and only alphanumeric characters are allowed.
 
    *Added in Synapse 1.93.0.*
 
@@ -3534,6 +3603,8 @@ cas_config:
     userGroup: "staff"
     department: None
   enable_registration: true
+  allow_numeric_ids: true
+  numeric_ids_prefix: "numericuser"
 ```
 ---
 ### `sso`
@@ -3739,7 +3810,8 @@ This setting defines options related to the user directory.
 This option has the following sub-options:
 * `enabled`:  Defines whether users can search the user directory. If false then
    empty responses are returned to all queries. Defaults to true.
-* `search_all_users`: Defines whether to search all users visible to your HS at the time the search is performed. If set to true, will return all users who share a room with the user from the homeserver.
+* `search_all_users`: Defines whether to search all users visible to your homeserver at the time the search is performed.
+   If set to true, will return all users known to the homeserver matching the search query.
    If false, search results will only contain users
     visible in public rooms and users sharing a room with the requester.
     Defaults to false.
@@ -4062,6 +4134,38 @@ default_power_level_content_override:
    trusted_private_chat: null
    public_chat: null
 ```
+
+The default power levels for each preset are:
+```yaml
+"m.room.name": 50
+"m.room.power_levels": 100
+"m.room.history_visibility": 100
+"m.room.canonical_alias": 50
+"m.room.avatar": 50
+"m.room.tombstone": 100
+"m.room.server_acl": 100
+"m.room.encryption": 100
+```
+
+So a complete example where the default power-levels for a preset are maintained
+but the power level for a new key is set is:
+```yaml
+default_power_level_content_override:
+   private_chat:
+    events:
+      "com.example.foo": 0
+      "m.room.name": 50
+      "m.room.power_levels": 100
+      "m.room.history_visibility": 100
+      "m.room.canonical_alias": 50
+      "m.room.avatar": 50
+      "m.room.tombstone": 100
+      "m.room.server_acl": 100
+      "m.room.encryption": 100
+   trusted_private_chat: null
+   public_chat: null
+```
+
 ---
 ### `forget_rooms_on_leave`
 
@@ -4083,7 +4187,7 @@ By default, no room is excluded.
 Example configuration:
 ```yaml
 exclude_rooms_from_sync:
-    - !foo:example.com
+    - "!foo:example.com"
 ```
 
 ---
@@ -4545,4 +4649,33 @@ background_updates:
     sleep_duration_ms: 300
     min_batch_size: 10
     default_batch_size: 50
+```
+---
+## Auto Accept Invites
+Configuration settings related to automatically accepting invites.
+
+---
+### `auto_accept_invites`
+
+Automatically accepting invites controls whether users are presented with an invite request or if they
+are instead automatically joined to a room when receiving an invite. Set the `enabled` sub-option to true to
+enable auto-accepting invites. Defaults to false.
+This setting has the following sub-options:
+* `enabled`: Whether to run the auto-accept invites logic. Defaults to false.
+* `only_for_direct_messages`: Whether invites should be automatically accepted for all room types, or only
+   for direct messages. Defaults to false.
+* `only_from_local_users`: Whether to only automatically accept invites from users on this homeserver. Defaults to false.
+* `worker_to_run_on`: Which worker to run this module on. This must match the "worker_name".
+
+NOTE: Care should be taken not to enable this setting if the `synapse_auto_accept_invite` module is enabled and installed.
+The two modules will compete to perform the same task and may result in undesired behaviour. For example, multiple join
+events could be generated from a single invite.
+
+Example configuration:
+```yaml
+auto_accept_invites:
+    enabled: true
+    only_for_direct_messages: true
+    only_from_local_users: true
+    worker_to_run_on: "worker_1"
 ```

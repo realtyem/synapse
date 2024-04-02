@@ -52,6 +52,7 @@ from synapse.http.servlet import (
     parse_boolean,
     parse_enum,
     parse_integer,
+    parse_json,
     parse_json_object_from_request,
     parse_string,
     parse_strings_from_args,
@@ -65,7 +66,6 @@ from synapse.rest.client.transactions import HttpTransactionCache
 from synapse.streams.config import PaginationConfig
 from synapse.types import JsonDict, Requester, StreamToken, ThirdPartyInstanceID, UserID
 from synapse.types.state import StateFilter
-from synapse.util import json_decoder
 from synapse.util.cancellation import cancellable
 from synapse.util.stringutils import parse_and_validate_server_name, random_string
 
@@ -292,6 +292,9 @@ class RoomStateEventRestServlet(RestServlet):
         try:
             if event_type == EventTypes.Member:
                 membership = content.get("membership", None)
+                if not isinstance(membership, str):
+                    raise SynapseError(400, "Invalid membership (must be a string)")
+
                 event_id, _ = await self.room_member_handler.update_membership(
                     requester,
                     target=UserID.from_string(state_key),
@@ -414,6 +417,7 @@ class JoinRoomAliasServlet(ResolveRoomIdMixin, TransactionRestServlet):
         super().__init__(hs)
         super(ResolveRoomIdMixin, self).__init__(hs)  # ensure the Mixin is set up
         self.auth = hs.get_auth()
+        self._support_via = hs.config.experimental.msc4156_enabled
 
     def register(self, http_server: HttpServer) -> None:
         # /join/$room_identifier[/$txn_id]
@@ -432,6 +436,13 @@ class JoinRoomAliasServlet(ResolveRoomIdMixin, TransactionRestServlet):
         # twisted.web.server.Request.args is incorrectly defined as Optional[Any]
         args: Dict[bytes, List[bytes]] = request.args  # type: ignore
         remote_room_hosts = parse_strings_from_args(args, "server_name", required=False)
+        if self._support_via:
+            remote_room_hosts = parse_strings_from_args(
+                args,
+                "org.matrix.msc4156.via",
+                default=remote_room_hosts,
+                required=False,
+            )
         room_id, remote_room_hosts = await self.resolve_room_id(
             room_identifier,
             remote_room_hosts,
@@ -703,21 +714,16 @@ class RoomMessageListRestServlet(RestServlet):
         )
         # Twisted will have processed the args by now.
         assert request.args is not None
+
+        filter_json = parse_json(request, "filter", encoding="utf-8")
+        event_filter = Filter(self._hs, filter_json) if filter_json else None
+
         as_client_event = b"raw" not in request.args
-        filter_str = parse_string(request, "filter", encoding="utf-8")
-        if filter_str:
-            filter_json = urlparse.unquote(filter_str)
-            event_filter: Optional[Filter] = Filter(
-                self._hs, json_decoder.decode(filter_json)
-            )
-            if (
-                event_filter
-                and event_filter.filter_json.get("event_format", "client")
-                == "federation"
-            ):
-                as_client_event = False
-        else:
-            event_filter = None
+        if (
+            event_filter
+            and event_filter.filter_json.get("event_format", "client") == "federation"
+        ):
+            as_client_event = False
 
         msgs = await self.pagination_handler.get_messages(
             room_id=room_id,
@@ -898,14 +904,8 @@ class RoomEventContextServlet(RestServlet):
         limit = parse_integer(request, "limit", default=10)
 
         # picking the API shape for symmetry with /messages
-        filter_str = parse_string(request, "filter", encoding="utf-8")
-        if filter_str:
-            filter_json = urlparse.unquote(filter_str)
-            event_filter: Optional[Filter] = Filter(
-                self._hs, json_decoder.decode(filter_json)
-            )
-        else:
-            event_filter = None
+        filter_json = parse_json(request, "filter", encoding="utf-8")
+        event_filter = Filter(self._hs, filter_json) if filter_json else None
 
         event_context = await self.room_context_handler.get_event_context(
             requester, room_id, event_id, limit, event_filter
@@ -1119,6 +1119,20 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
         txn_id: Optional[str],
     ) -> Tuple[int, JsonDict]:
         content = parse_json_object_from_request(request)
+
+        requester_suspended = await self._store.get_user_suspended_status(
+            requester.user.to_string()
+        )
+
+        if requester_suspended:
+            event = await self._store.get_event(event_id, allow_none=True)
+            if event:
+                if event.sender != requester.user.to_string():
+                    raise SynapseError(
+                        403,
+                        "You can only redact your own events while account is suspended.",
+                        Codes.USER_ACCOUNT_SUSPENDED,
+                    )
 
         # Ensure the redacts property in the content matches the one provided in
         # the URL.
@@ -1430,16 +1444,7 @@ class RoomHierarchyRestServlet(RestServlet):
         requester = await self._auth.get_user_by_req(request, allow_guest=True)
 
         max_depth = parse_integer(request, "max_depth")
-        if max_depth is not None and max_depth < 0:
-            raise SynapseError(
-                400, "'max_depth' must be a non-negative integer", Codes.BAD_JSON
-            )
-
         limit = parse_integer(request, "limit")
-        if limit is not None and limit <= 0:
-            raise SynapseError(
-                400, "'limit' must be a positive integer", Codes.BAD_JSON
-            )
 
         return 200, await self._room_summary_handler.get_room_hierarchy(
             requester,
@@ -1453,9 +1458,15 @@ class RoomHierarchyRestServlet(RestServlet):
 
 class RoomSummaryRestServlet(ResolveRoomIdMixin, RestServlet):
     PATTERNS = (
+        # deprecated endpoint, to be removed
         re.compile(
             "^/_matrix/client/unstable/im.nheko.summary"
             "/rooms/(?P<room_identifier>[^/]*)/summary$"
+        ),
+        # recommended endpoint
+        re.compile(
+            "^/_matrix/client/unstable/im.nheko.summary"
+            "/summary/(?P<room_identifier>[^/]*)$"
         ),
     )
     CATEGORY = "Client API requests"

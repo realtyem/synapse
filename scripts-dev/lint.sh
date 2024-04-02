@@ -91,7 +91,6 @@ else
           "synapse" "docker" "tests"
           "scripts-dev"
           "contrib" "synmark" "stubs" ".ci"
-          "dev-docs"
       )
   fi
 fi
@@ -113,7 +112,7 @@ python3 -m black "${files[@]}"
 
 # Catch any common programming mistakes in Python code.
 # --quiet suppresses the update check.
-ruff --quiet --fix "${files[@]}"
+ruff check --quiet --fix "${files[@]}"
 
 # Catch any common programming mistakes in Rust code.
 #

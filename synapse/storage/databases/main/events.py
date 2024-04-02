@@ -19,6 +19,7 @@
 # [This file includes modifications made by New Vector Limited]
 #
 #
+import collections
 import itertools
 import logging
 from collections import OrderedDict
@@ -33,7 +34,6 @@ from typing import (
     Optional,
     Set,
     Tuple,
-    Union,
     cast,
 )
 
@@ -53,6 +53,7 @@ from synapse.storage.database import (
     LoggingDatabaseConnection,
     LoggingTransaction,
 )
+from synapse.storage.databases.main.event_federation import EventFederationStore
 from synapse.storage.databases.main.events_worker import EventCacheEntry
 from synapse.storage.databases.main.search import SearchEntry
 from synapse.storage.engines import PostgresEngine
@@ -92,6 +93,27 @@ class DeltaState:
     to_delete: List[Tuple[str, str]]
     to_insert: StateMap[str]
     no_longer_in_room: bool = False
+
+    def is_noop(self) -> bool:
+        """Whether this state delta is actually empty"""
+        return not self.to_delete and not self.to_insert and not self.no_longer_in_room
+
+
+@attr.s(slots=True, auto_attribs=True)
+class NewEventChainLinks:
+    """Information about new auth chain links that need to be added to the DB.
+
+    Attributes:
+        chain_id, sequence_number: the IDs corresponding to the event being
+            inserted, and the starting point of the links
+        links: Lists the links that need to be added, 2-tuple of the chain
+            ID/sequence number of the end point of the link.
+    """
+
+    chain_id: int
+    sequence_number: int
+
+    links: List[Tuple[int, int]] = attr.Factory(list)
 
 
 class PersistEventsStore:
@@ -142,6 +164,7 @@ class PersistEventsStore:
         *,
         state_delta_for_room: Optional[DeltaState],
         new_forward_extremities: Optional[Set[str]],
+        new_event_links: Dict[str, NewEventChainLinks],
         use_negative_stream_ordering: bool = False,
         inhibit_local_membership_updates: bool = False,
     ) -> None:
@@ -201,6 +224,7 @@ class PersistEventsStore:
         async with stream_ordering_manager as stream_orderings:
             for (event, _), stream in zip(events_and_contexts, stream_orderings):
                 event.internal_metadata.stream_ordering = stream
+                event.internal_metadata.instance_name = self._instance_name
 
             await self.db_pool.runInteraction(
                 "persist_events",
@@ -210,6 +234,7 @@ class PersistEventsStore:
                 inhibit_local_membership_updates=inhibit_local_membership_updates,
                 state_delta_for_room=state_delta_for_room,
                 new_forward_extremities=new_forward_extremities,
+                new_event_links=new_event_links,
             )
             persist_event_counter.inc(len(events_and_contexts))
 
@@ -235,6 +260,87 @@ class PersistEventsStore:
                 self.store.get_latest_event_ids_in_room.prefill(
                     (room_id,), frozenset(new_forward_extremities)
                 )
+
+    async def calculate_chain_cover_index_for_events(
+        self, room_id: str, events: Collection[EventBase]
+    ) -> Dict[str, NewEventChainLinks]:
+        # Filter to state events, and ensure there are no duplicates.
+        state_events = []
+        seen_events = set()
+        for event in events:
+            if not event.is_state() or event.event_id in seen_events:
+                continue
+
+            state_events.append(event)
+            seen_events.add(event.event_id)
+
+        if not state_events:
+            return {}
+
+        return await self.db_pool.runInteraction(
+            "_calculate_chain_cover_index_for_events",
+            self.calculate_chain_cover_index_for_events_txn,
+            room_id,
+            state_events,
+        )
+
+    def calculate_chain_cover_index_for_events_txn(
+        self, txn: LoggingTransaction, room_id: str, state_events: Collection[EventBase]
+    ) -> Dict[str, NewEventChainLinks]:
+        # We now calculate chain ID/sequence numbers for any state events we're
+        # persisting. We ignore out of band memberships as we're not in the room
+        # and won't have their auth chain (we'll fix it up later if we join the
+        # room).
+        #
+        # See: docs/auth_chain_difference_algorithm.md
+
+        # We ignore legacy rooms that we aren't filling the chain cover index
+        # for.
+        row = self.db_pool.simple_select_one_txn(
+            txn,
+            table="rooms",
+            keyvalues={"room_id": room_id},
+            retcols=("room_id", "has_auth_chain_index"),
+            allow_none=True,
+        )
+        if row is None or row[1] is False:
+            return {}
+
+        # Filter out events that we've already calculated.
+        rows = self.db_pool.simple_select_many_txn(
+            txn,
+            table="event_auth_chains",
+            column="event_id",
+            iterable=[e.event_id for e in state_events],
+            keyvalues={},
+            retcols=("event_id",),
+        )
+        already_persisted_events = {event_id for event_id, in rows}
+        state_events = [
+            event
+            for event in state_events
+            if event.event_id not in already_persisted_events
+        ]
+
+        if not state_events:
+            return {}
+
+        # We need to know the type/state_key and auth events of the events we're
+        # calculating chain IDs for. We don't rely on having the full Event
+        # instances as we'll potentially be pulling more events from the DB and
+        # we don't need the overhead of fetching/parsing the full event JSON.
+        event_to_types = {e.event_id: (e.type, e.state_key) for e in state_events}
+        event_to_auth_chain = {e.event_id: e.auth_event_ids() for e in state_events}
+        event_to_room_id = {e.event_id: e.room_id for e in state_events}
+
+        return self._calculate_chain_cover_index(
+            txn,
+            self.db_pool,
+            self.store.event_chain_id_gen,
+            event_to_room_id,
+            event_to_types,
+            event_to_auth_chain,
+        )
 
     async def _get_events_which_are_prevs(self, event_ids: Iterable[str]) -> List[str]:
         """Filter the supplied list of event_ids to get those which are prev_events of
@@ -351,6 +457,7 @@ class PersistEventsStore:
         inhibit_local_membership_updates: bool,
         state_delta_for_room: Optional[DeltaState],
         new_forward_extremities: Optional[Set[str]],
+        new_event_links: Dict[str, NewEventChainLinks],
     ) -> None:
         """Insert some number of room events into the necessary database tables.
 
@@ -459,7 +566,9 @@ class PersistEventsStore:
         # Insert into event_to_state_groups.
         self._store_event_state_mappings_txn(txn, events_and_contexts)
 
-        self._persist_event_auth_chain_txn(txn, [e for e, _ in events_and_contexts])
+        self._persist_event_auth_chain_txn(
+            txn, [e for e, _ in events_and_contexts], new_event_links
+        )
 
         # _store_rejected_events_txn filters out any events which were
         # rejected, and returns the filtered list.
@@ -489,7 +598,11 @@ class PersistEventsStore:
         self,
         txn: LoggingTransaction,
         events: List[EventBase],
+        new_event_links: Dict[str, NewEventChainLinks],
     ) -> None:
+        if new_event_links:
+            self._persist_chain_cover_index(txn, self.db_pool, new_event_links)
+
         # We only care about state events, so this if there are no state events.
         if not any(e.is_state() for e in events):
             return
@@ -512,60 +625,6 @@ class PersistEventsStore:
             ],
         )
 
-        # We now calculate chain ID/sequence numbers for any state events we're
-        # persisting. We ignore out of band memberships as we're not in the room
-        # and won't have their auth chain (we'll fix it up later if we join the
-        # room).
-        #
-        # See: docs/auth_chain_difference_algorithm.md
-
-        # We ignore legacy rooms that we aren't filling the chain cover index
-        # for.
-        rows = cast(
-            List[Tuple[str, Optional[Union[int, bool]]]],
-            self.db_pool.simple_select_many_txn(
-                txn,
-                table="rooms",
-                column="room_id",
-                iterable={event.room_id for event in events if event.is_state()},
-                keyvalues={},
-                retcols=("room_id", "has_auth_chain_index"),
-            ),
-        )
-        rooms_using_chain_index = {
-            room_id for room_id, has_auth_chain_index in rows if has_auth_chain_index
-        }
-
-        state_events = {
-            event.event_id: event
-            for event in events
-            if event.is_state() and event.room_id in rooms_using_chain_index
-        }
-
-        if not state_events:
-            return
-
-        # We need to know the type/state_key and auth events of the events we're
-        # calculating chain IDs for. We don't rely on having the full Event
-        # instances as we'll potentially be pulling more events from the DB and
-        # we don't need the overhead of fetching/parsing the full event JSON.
-        event_to_types = {
-            e.event_id: (e.type, e.state_key) for e in state_events.values()
-        }
-        event_to_auth_chain = {
-            e.event_id: e.auth_event_ids() for e in state_events.values()
-        }
-        event_to_room_id = {e.event_id: e.room_id for e in state_events.values()}
-
-        self._add_chain_cover_index(
-            txn,
-            self.db_pool,
-            self.store.event_chain_id_gen,
-            event_to_room_id,
-            event_to_types,
-            event_to_auth_chain,
-        )
-
     @classmethod
     def _add_chain_cover_index(
         cls,
@@ -576,6 +635,35 @@ class PersistEventsStore:
         event_to_types: Dict[str, Tuple[str, str]],
         event_to_auth_chain: Dict[str, StrCollection],
     ) -> None:
+        """Calculate and persist the chain cover index for the given events.
+
+        Args:
+            event_to_room_id: Event ID to the room ID of the event
+            event_to_types: Event ID to type and state_key of the event
+            event_to_auth_chain: Event ID to list of auth event IDs of the
+                event (events with no auth events can be excluded).
+        """
+
+        new_event_links = cls._calculate_chain_cover_index(
+            txn,
+            db_pool,
+            event_chain_id_gen,
+            event_to_room_id,
+            event_to_types,
+            event_to_auth_chain,
+        )
+        cls._persist_chain_cover_index(txn, db_pool, new_event_links)
+
+    @classmethod
+    def _calculate_chain_cover_index(
+        cls,
+        txn: LoggingTransaction,
+        db_pool: DatabasePool,
+        event_chain_id_gen: SequenceGenerator,
+        event_to_room_id: Dict[str, str],
+        event_to_types: Dict[str, Tuple[str, str]],
+        event_to_auth_chain: Dict[str, StrCollection],
+    ) -> Dict[str, NewEventChainLinks]:
         """Calculate the chain cover index for the given events.
 
         Args:
@@ -583,6 +671,10 @@ class PersistEventsStore:
             event_to_types: Event ID to type and state_key of the event
             event_to_auth_chain: Event ID to list of auth event IDs of the
                 event (events with no auth events can be excluded).
+
+        Returns:
+            A mapping with any new auth chain links we need to add, keyed by
+            event ID.
         """
 
         # Map from event ID to chain ID/sequence number.
@@ -701,11 +793,11 @@ class PersistEventsStore:
                     room_id = event_to_room_id.get(event_id)
                     if room_id:
                         e_type, state_key = event_to_types[event_id]
-                        db_pool.simple_insert_txn(
+                        db_pool.simple_upsert_txn(
                             txn,
                             table="event_auth_chain_to_calculate",
+                            keyvalues={"event_id": event_id},
                             values={
-                                "event_id": event_id,
                                 "room_id": room_id,
                                 "type": e_type,
                                 "state_key": state_key,
@@ -717,7 +809,7 @@ class PersistEventsStore:
                     break
 
         if not events_to_calc_chain_id_for:
-            return
+            return {}
 
         # Allocate chain ID/sequence numbers to each new event.
         new_chain_tuples = cls._allocate_chain_ids(
@@ -732,23 +824,10 @@ class PersistEventsStore:
         )
         chain_map.update(new_chain_tuples)
 
-        db_pool.simple_insert_many_txn(
-            txn,
-            table="event_auth_chains",
-            keys=("event_id", "chain_id", "sequence_number"),
-            values=[
-                (event_id, c_id, seq)
-                for event_id, (c_id, seq) in new_chain_tuples.items()
-            ],
-        )
-
-        db_pool.simple_delete_many_txn(
-            txn,
-            table="event_auth_chain_to_calculate",
-            keyvalues={},
-            column="event_id",
-            values=new_chain_tuples,
-        )
+        to_return = {
+            event_id: NewEventChainLinks(chain_id, sequence_number)
+            for event_id, (chain_id, sequence_number) in new_chain_tuples.items()
+        }
 
         # Now we need to calculate any new links between chains caused by
         # the new events.
@@ -768,40 +847,26 @@ class PersistEventsStore:
         #      that have the same chain ID as the event.
         #   2. For each retained auth event we:
         #       a. Add a link from the event's to the auth event's chain
-        #          ID/sequence number; and
-        #       b. Add a link from the event to every chain reachable by the
-        #          auth event.
+        #          ID/sequence number
 
         # Step 1, fetch all existing links from all the chains we've seen
         # referenced.
         chain_links = _LinkMap()
-        auth_chain_rows = cast(
-            List[Tuple[int, int, int, int]],
-            db_pool.simple_select_many_txn(
-                txn,
-                table="event_auth_chain_links",
-                column="origin_chain_id",
-                iterable={chain_id for chain_id, _ in chain_map.values()},
-                keyvalues={},
-                retcols=(
-                    "origin_chain_id",
-                    "origin_sequence_number",
-                    "target_chain_id",
-                    "target_sequence_number",
-                ),
-            ),
-        )
-        for (
-            origin_chain_id,
-            origin_sequence_number,
-            target_chain_id,
-            target_sequence_number,
-        ) in auth_chain_rows:
-            chain_links.add_link(
-                (origin_chain_id, origin_sequence_number),
-                (target_chain_id, target_sequence_number),
-                new=False,
-            )
+
+        for links in EventFederationStore._get_chain_links(
+            txn, {chain_id for chain_id, _ in chain_map.values()}
+        ):
+            for origin_chain_id, inner_links in links.items():
+                for (
+                    origin_sequence_number,
+                    target_chain_id,
+                    target_sequence_number,
+                ) in inner_links:
+                    chain_links.add_link(
+                        (origin_chain_id, origin_sequence_number),
+                        (target_chain_id, target_sequence_number),
+                        new=False,
+                    )
 
         # We do this in toplogical order to avoid adding redundant links.
         for event_id in sorted_topologically(
@@ -832,21 +897,37 @@ class PersistEventsStore:
                 auth_chain_id, auth_sequence_number = chain_map[auth_id]
 
                 # Step 2a, add link between the event and auth event
+                to_return[event_id].links.append((auth_chain_id, auth_sequence_number))
                 chain_links.add_link(
                     (chain_id, sequence_number), (auth_chain_id, auth_sequence_number)
                 )
 
-                # Step 2b, add a link to chains reachable from the auth
-                # event.
-                for target_id, target_seq in chain_links.get_links_from(
-                    (auth_chain_id, auth_sequence_number)
-                ):
-                    if target_id == chain_id:
-                        continue
+        return to_return
 
-                    chain_links.add_link(
-                        (chain_id, sequence_number), (target_id, target_seq)
-                    )
+    @classmethod
+    def _persist_chain_cover_index(
+        cls,
+        txn: LoggingTransaction,
+        db_pool: DatabasePool,
+        new_event_links: Dict[str, NewEventChainLinks],
+    ) -> None:
+        db_pool.simple_insert_many_txn(
+            txn,
+            table="event_auth_chains",
+            keys=("event_id", "chain_id", "sequence_number"),
+            values=[
+                (event_id, new_links.chain_id, new_links.sequence_number)
+                for event_id, new_links in new_event_links.items()
+            ],
+        )
+
+        db_pool.simple_delete_many_txn(
+            txn,
+            table="event_auth_chain_to_calculate",
+            keyvalues={},
+            column="event_id",
+            values=new_event_links,
+        )
 
         db_pool.simple_insert_many_txn(
             txn,
@@ -857,7 +938,16 @@ class PersistEventsStore:
                 "target_chain_id",
                 "target_sequence_number",
             ),
-            values=list(chain_links.get_additions()),
+            values=[
+                (
+                    new_links.chain_id,
+                    new_links.sequence_number,
+                    target_chain_id,
+                    target_sequence_number,
+                )
+                for new_links in new_event_links.values()
+                for (target_chain_id, target_sequence_number) in new_links.links
+            ],
         )
 
     @staticmethod
@@ -1040,6 +1130,9 @@ class PersistEventsStore:
         state_delta: DeltaState,
     ) -> None:
         """Update the current state stored in the datatabase for the given room"""
+
+        if state_delta.is_noop():
+            return
 
         async with self._stream_id_gen.get_next() as stream_ordering:
             await self.db_pool.runInteraction(
@@ -1947,7 +2040,12 @@ class PersistEventsStore:
 
         # Any relation information for the related event must be cleared.
         self.store._invalidate_cache_and_stream(
-            txn, self.store.get_relations_for_event, (redacted_relates_to,)
+            txn,
+            self.store.get_relations_for_event,
+            (
+                room_id,
+                redacted_relates_to,
+            ),
         )
         if rel_type == RelationTypes.REFERENCE:
             self.store._invalidate_cache_and_stream(
@@ -2451,31 +2549,6 @@ class _LinkMap:
         current_links[src_seq] = target_seq
         return True
 
-    def get_links_from(
-        self, src_tuple: Tuple[int, int]
-    ) -> Generator[Tuple[int, int], None, None]:
-        """Gets the chains reachable from the given chain/sequence number.
-
-        Yields:
-            The chain ID and sequence number the link points to.
-        """
-        src_chain, src_seq = src_tuple
-        for target_id, sequence_numbers in self.maps.get(src_chain, {}).items():
-            for link_src_seq, target_seq in sequence_numbers.items():
-                if link_src_seq <= src_seq:
-                    yield target_id, target_seq
-
-    def get_links_between(
-        self, source_chain: int, target_chain: int
-    ) -> Generator[Tuple[int, int], None, None]:
-        """Gets the links between two chains.
-
-        Yields:
-            The source and target sequence numbers.
-        """
-
-        yield from self.maps.get(source_chain, {}).get(target_chain, {}).items()
-
     def get_additions(self) -> Generator[Tuple[int, int, int, int], None, None]:
         """Gets any newly added links.
 
@@ -2502,9 +2575,24 @@ class _LinkMap:
         if src_chain == target_chain:
             return target_seq <= src_seq
 
-        links = self.get_links_between(src_chain, target_chain)
-        for link_start_seq, link_end_seq in links:
-            if link_start_seq <= src_seq and target_seq <= link_end_seq:
-                return True
+        # We have to graph traverse the links to check for indirect paths.
+        visited_chains: Dict[int, int] = collections.Counter()
+        search = [(src_chain, src_seq)]
+        while search:
+            chain, seq = search.pop()
+            visited_chains[chain] = max(seq, visited_chains[chain])
+            for tc, links in self.maps.get(chain, {}).items():
+                for ss, ts in links.items():
+                    # Don't revisit chains we've already seen, unless the target
+                    # sequence number is higher than last time.
+                    if ts <= visited_chains.get(tc, 0):
+                        continue
+
+                    if ss <= seq:
+                        if tc == target_chain:
+                            if target_seq <= ts:
+                                return True
+                        else:
+                            search.append((tc, ts))
 
         return False

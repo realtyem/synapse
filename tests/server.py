@@ -85,6 +85,7 @@ from twisted.web.server import Request, Site
 
 from synapse.config.database import DatabaseConnectionConfig
 from synapse.config.homeserver import HomeServerConfig
+from synapse.events.auto_accept_invites import InviteAutoAccepter
 from synapse.events.presence_router import load_legacy_presence_router
 from synapse.handlers.auth import load_legacy_password_auth_providers
 from synapse.http.site import SynapseRequest
@@ -288,10 +289,6 @@ class FakeChannel:
         self._reactor.run()
 
         while not self.is_finished():
-            # If there's a producer, tell it to resume producing so we get content
-            if self._producer:
-                self._producer.resumeProducing()
-
             if self._reactor.seconds() > end_time:
                 raise TimedOutException("Timed out waiting for request to finish.")
 
@@ -351,6 +348,7 @@ def make_request(
     request: Type[Request] = SynapseRequest,
     shorthand: bool = True,
     federation_auth_origin: Optional[bytes] = None,
+    content_type: Optional[bytes] = None,
     content_is_form: bool = False,
     await_result: bool = True,
     custom_headers: Optional[Iterable[CustomHeaderType]] = None,
@@ -373,6 +371,8 @@ def make_request(
             with the usual REST API path, if it doesn't contain it.
         federation_auth_origin: if set to not-None, we will add a fake
             Authorization header pretenting to be the given server name.
+        content_type: The content-type to use for the request. If not set then will default to
+            application/json unless content_is_form is true.
         content_is_form: Whether the content is URL encoded form data. Adds the
             'Content-Type': 'application/x-www-form-urlencoded' header.
         await_result: whether to wait for the request to complete rendering. If true,
@@ -436,7 +436,9 @@ def make_request(
         )
 
     if content:
-        if content_is_form:
+        if content_type is not None:
+            req.requestHeaders.addRawHeader(b"Content-Type", content_type)
+        elif content_is_form:
             req.requestHeaders.addRawHeader(
                 b"Content-Type", b"application/x-www-form-urlencoded"
             )
@@ -940,7 +942,7 @@ def connect_client(
 
 
 class TestHomeServer(HomeServer):
-    DATASTORE_CLASS = DataStore  # type: ignore[assignment]
+    DATASTORE_CLASS = DataStore
 
 
 def setup_test_homeserver(
@@ -1150,6 +1152,11 @@ def setup_test_homeserver(
     module_api = hs.get_module_api()
     for module, module_config in hs.config.modules.loaded_modules:
         module(config=module_config, api=module_api)
+
+    if hs.config.auto_accept_invites.enabled:
+        # Start the local auto_accept_invites module.
+        m = InviteAutoAccepter(hs.config.auto_accept_invites, module_api)
+        logger.info("Loaded local module %s", m)
 
     load_legacy_spam_checkers(hs)
     load_legacy_third_party_event_rules(hs)
