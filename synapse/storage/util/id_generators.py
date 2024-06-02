@@ -794,17 +794,15 @@ class MultiWriterIdGenerator(AbstractStreamIdGenerator):
 
         # We upsert the value, ensuring on conflict that we always increase the
         # value (or decrease if stream goes backwards).
-        if isinstance(self._db.engine, PostgresEngine):
-            agg = "GREATEST" if self._positive else "LEAST"
-        else:
-            agg = "MAX" if self._positive else "MIN"
+        agg = "<" if self._positive else ">"
 
         sql = """
             INSERT INTO stream_positions (stream_name, instance_name, stream_id)
             VALUES (?, ?, ?)
             ON CONFLICT (stream_name, instance_name)
             DO UPDATE SET
-                stream_id = %(agg)s(stream_positions.stream_id, EXCLUDED.stream_id)
+                stream_id = EXCLUDED.stream_id
+            WHERE stream_positions.stream_id %(agg)s EXCLUDED.stream_id
         """ % {
             "agg": agg,
         }
