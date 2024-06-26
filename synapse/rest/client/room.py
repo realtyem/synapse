@@ -19,7 +19,8 @@
 #
 #
 
-""" This module contains REST servlets to do with rooms: /rooms/<paths> """
+"""This module contains REST servlets to do with rooms: /rooms/<paths>"""
+
 import logging
 import re
 from enum import Enum
@@ -67,7 +68,8 @@ from synapse.streams.config import PaginationConfig
 from synapse.types import JsonDict, Requester, StreamToken, ThirdPartyInstanceID, UserID
 from synapse.types.state import StateFilter
 from synapse.util.cancellation import cancellable
-from synapse.util.stringutils import parse_and_validate_server_name, random_string
+from synapse.util.events import generate_fake_event_id
+from synapse.util.stringutils import parse_and_validate_server_name
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -292,6 +294,9 @@ class RoomStateEventRestServlet(RestServlet):
         try:
             if event_type == EventTypes.Member:
                 membership = content.get("membership", None)
+                if not isinstance(membership, str):
+                    raise SynapseError(400, "Invalid membership (must be a string)")
+
                 event_id, _ = await self.room_member_handler.update_membership(
                     requester,
                     target=UserID.from_string(state_key),
@@ -322,7 +327,7 @@ class RoomStateEventRestServlet(RestServlet):
                 )
                 event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         ret = {"event_id": event_id}
@@ -374,7 +379,7 @@ class RoomSendEventRestServlet(TransactionRestServlet):
             )
             event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         return 200, {"event_id": event_id}
@@ -431,7 +436,12 @@ class JoinRoomAliasServlet(ResolveRoomIdMixin, TransactionRestServlet):
 
         # twisted.web.server.Request.args is incorrectly defined as Optional[Any]
         args: Dict[bytes, List[bytes]] = request.args  # type: ignore
-        remote_room_hosts = parse_strings_from_args(args, "server_name", required=False)
+        # Prefer via over server_name (deprecated with MSC4156)
+        remote_room_hosts = parse_strings_from_args(args, "via", required=False)
+        if remote_room_hosts is None:
+            remote_room_hosts = parse_strings_from_args(
+                args, "server_name", required=False
+            )
         room_id, remote_room_hosts = await self.resolve_room_id(
             room_identifier,
             remote_room_hosts,
@@ -499,7 +509,7 @@ class PublicRoomListRestServlet(RestServlet):
             if server:
                 raise e
 
-        limit: Optional[int] = parse_integer(request, "limit", 0, negative=False)
+        limit: Optional[int] = parse_integer(request, "limit", 0)
         since_token = parse_string(request, "since")
 
         if limit == 0:
@@ -1109,6 +1119,20 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
     ) -> Tuple[int, JsonDict]:
         content = parse_json_object_from_request(request)
 
+        requester_suspended = await self._store.get_user_suspended_status(
+            requester.user.to_string()
+        )
+
+        if requester_suspended:
+            event = await self._store.get_event(event_id, allow_none=True)
+            if event:
+                if event.sender != requester.user.to_string():
+                    raise SynapseError(
+                        403,
+                        "You can only redact your own events while account is suspended.",
+                        Codes.USER_ACCOUNT_SUSPENDED,
+                    )
+
         # Ensure the redacts property in the content matches the one provided in
         # the URL.
         room_version = await self._store.get_room_version(room_id)
@@ -1168,7 +1192,7 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
 
             event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         return 200, {"event_id": event_id}
@@ -1419,16 +1443,7 @@ class RoomHierarchyRestServlet(RestServlet):
         requester = await self._auth.get_user_by_req(request, allow_guest=True)
 
         max_depth = parse_integer(request, "max_depth")
-        if max_depth is not None and max_depth < 0:
-            raise SynapseError(
-                400, "'max_depth' must be a non-negative integer", Codes.BAD_JSON
-            )
-
         limit = parse_integer(request, "limit")
-        if limit is not None and limit <= 0:
-            raise SynapseError(
-                400, "'limit' must be a positive integer", Codes.BAD_JSON
-            )
 
         return 200, await self._room_summary_handler.get_room_hierarchy(
             requester,

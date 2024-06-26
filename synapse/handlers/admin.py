@@ -42,7 +42,6 @@ class AdminHandler:
         self._device_handler = hs.get_device_handler()
         self._storage_controllers = hs.get_storage_controllers()
         self._state_storage_controller = self._storage_controllers.state
-        self._hs_config = hs.config
         self._msc3866_enabled = hs.config.experimental.msc3866.enabled
 
     async def get_whois(self, user: UserID) -> JsonMapping:
@@ -126,13 +125,7 @@ class AdminHandler:
         # Get all rooms the user is in or has been in
         rooms = await self._store.get_rooms_for_local_user_where_membership_is(
             user_id,
-            membership_list=(
-                Membership.JOIN,
-                Membership.LEAVE,
-                Membership.BAN,
-                Membership.INVITE,
-                Membership.KNOCK,
-            ),
+            membership_list=Membership.LIST,
         )
 
         # We only try and fetch events for rooms the user has been in. If
@@ -179,7 +172,7 @@ class AdminHandler:
             if room.membership == Membership.JOIN:
                 stream_ordering = self._store.get_room_max_stream_ordering()
             else:
-                stream_ordering = room.stream_ordering
+                stream_ordering = room.event_pos.stream
 
             from_key = RoomStreamToken(topological=0, stream=0)
             to_key = RoomStreamToken(stream=stream_ordering)
@@ -204,8 +197,16 @@ class AdminHandler:
             # events that we have and then filtering, this isn't the most
             # efficient method perhaps but it does guarantee we get everything.
             while True:
-                events, _ = await self._store.paginate_room_events(
-                    room_id, from_key, to_key, limit=100, direction=Direction.FORWARDS
+                (
+                    events,
+                    _,
+                    _,
+                ) = await self._store.paginate_room_events_by_topological_ordering(
+                    room_id=room_id,
+                    from_key=from_key,
+                    to_key=to_key,
+                    limit=100,
+                    direction=Direction.FORWARDS,
                 )
                 if not events:
                     break
@@ -221,7 +222,6 @@ class AdminHandler:
                     self._storage_controllers,
                     user_id,
                     events,
-                    msc4115_membership_on_events=self._hs_config.experimental.msc4115_membership_on_events,
                 )
 
                 writer.write_events(room_id, events)

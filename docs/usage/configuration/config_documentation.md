@@ -246,6 +246,7 @@ Example configuration:
 ```yaml
 presence:
   enabled: false
+  include_offline_users_on_sync: false
 ```
 
 `enabled` can also be set to a special value of "untracked" which ignores updates
@@ -253,6 +254,10 @@ received via clients and federation, while still accepting updates from the
 [module API](../../modules/index.md).
 
 *The "untracked" option was added in Synapse 1.96.0.*
+
+When clients perform an initial or `full_state` sync, presence results for offline users are
+not included by default. Setting `include_offline_users_on_sync` to `true` will always include
+offline users in the results. Defaults to false.
 
 ---
 ### `require_auth_for_profile_requests`
@@ -504,7 +509,8 @@ Unix socket support (_Added in Synapse 1.89.0_):
 
 Valid resource names are:
 
-* `client`: the client-server API (/_matrix/client), and the synapse admin API (/_synapse/admin). Also implies `media` and `static`.
+* `client`: the client-server API (/_matrix/client). Also implies `media` and `static`.
+  If configuring the main process, the Synapse Admin API (/_synapse/admin) is also implied.
 
 * `consent`: user consent forms (/_matrix/consent). See [here](../../consent_tracking.md) for more.
 
@@ -1232,6 +1238,31 @@ federation_domain_whitelist:
   - syd.example.com
 ```
 ---
+### `federation_whitelist_endpoint_enabled`
+
+Enables an endpoint for fetching the federation whitelist config.
+
+The request method and path is `GET /_synapse/client/v1/config/federation_whitelist`, and the
+response format is:
+
+```json
+{
+    "whitelist_enabled": true,  // Whether the federation whitelist is being enforced
+    "whitelist": [  // Which server names are allowed by the whitelist
+        "example.com"
+    ]
+}
+```
+
+If `whitelist_enabled` is `false` then the server is permitted to federate with all others.
+
+The endpoint requires authentication.
+
+Example configuration:
+```yaml
+federation_whitelist_endpoint_enabled: true
+```
+---
 ### `federation_metrics_domains`
 
 Report prometheus metrics on the age of PDUs being sent to and received from
@@ -1734,8 +1765,9 @@ rc_3pid_validation:
 ### `rc_invites`
 
 This option sets ratelimiting how often invites can be sent in a room or to a
-specific user. `per_room` defaults to `per_second: 0.3`, `burst_count: 10` and
-`per_user` defaults to `per_second: 0.003`, `burst_count: 5`.
+specific user. `per_room` defaults to `per_second: 0.3`, `burst_count: 10`,
+`per_user` defaults to `per_second: 0.003`, `burst_count: 5`, and `per_issuer`
+defaults to `per_second: 0.3`, `burst_count: 10`.
 
 Client requests that invite user(s) when [creating a
 room](https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3createroom)
@@ -1838,6 +1870,18 @@ federation_rr_transactions_per_room_per_second: 40
 Config options related to Synapse's media store.
 
 ---
+### `enable_authenticated_media`
+
+When set to true, all subsequent media uploads will be marked as authenticated, and will not be available over legacy
+unauthenticated media endpoints (`/_matrix/media/(r0|v3|v1)/download` and `/_matrix/media/(r0|v3|v1)/thumbnail`) - requests for authenticated media over these endpoints will result in a 404. All media, including authenticated media, will be available over the authenticated media endpoints `_matrix/client/v1/media/download` and `_matrix/client/v1/media/thumbnail`. Media uploaded prior to setting this option to true will still be available over the legacy endpoints. Note if the setting is switched to false
+after enabling, media marked as authenticated will be available over legacy endpoints. Defaults to false, but
+this will change to true in a future Synapse release.
+
+Example configuration:
+```yaml
+enable_authenticated_media: true
+```
+---
 ### `enable_media_repo`
 
 Enable the media store service in the Synapse master. Defaults to true.
@@ -1921,6 +1965,24 @@ Example configuration:
 max_image_pixels: 35M
 ```
 ---
+### `remote_media_download_burst_count`
+
+Remote media downloads are ratelimited using a [leaky bucket algorithm](https://en.wikipedia.org/wiki/Leaky_bucket), where a given "bucket" is keyed to the IP address of the requester when requesting remote media downloads. This configuration option sets the size of the bucket against which the size in bytes of downloads are penalized - if the bucket is full, ie a given number of bytes have already been downloaded, further downloads will be denied until the bucket drains.  Defaults to 500MiB. See also `remote_media_download_per_second` which determines the rate at which the "bucket" is emptied and thus has available space to authorize new requests.
+
+Example configuration:
+```yaml
+remote_media_download_burst_count: 200M
+```
+---
+### `remote_media_download_per_second`
+
+Works in conjunction with `remote_media_download_burst_count` to ratelimit remote media downloads - this configuration option determines the rate at which the "bucket" (see above) leaks in bytes per second. As requests are made to download remote media, the size of those requests in bytes is added to the bucket, and once the bucket has reached it's capacity, no more requests will be allowed until a number of bytes has "drained" from the bucket. This setting determines the rate at which bytes drain from the bucket, with the practical effect that the larger the number, the faster the bucket leaks, allowing for more bytes downloaded over a shorter period of time. Defaults to 87KiB per second. See also `remote_media_download_burst_count`.
+
+Example configuration:
+```yaml
+remote_media_download_per_second: 40K
+```
+---
 ### `prevent_media_downloads_from`
 
 A list of domains to never download media from. Media from these
@@ -1932,9 +1994,10 @@ This will not prevent the listed domains from accessing media themselves.
 It simply prevents users on this server from downloading media originating
 from the listed servers.
 
-This will have no effect on media originating from the local server.
-This only affects media downloaded from other Matrix servers, to
-block domains from URL previews see [`url_preview_url_blacklist`](#url_preview_url_blacklist).
+This will have no effect on media originating from the local server. This only
+affects media downloaded from other Matrix servers, to control URL previews see
+[`url_preview_ip_range_blacklist`](#url_preview_ip_range_blacklist) or
+[`url_preview_url_blacklist`](#url_preview_url_blacklist).
 
 Defaults to an empty list (nothing blocked).
 
@@ -2086,12 +2149,14 @@ url_preview_ip_range_whitelist:
 ---
 ### `url_preview_url_blacklist`
 
-Optional list of URL matches that the URL preview spider is
-denied from accessing.  You should use `url_preview_ip_range_blacklist`
-in preference to this, otherwise someone could define a public DNS
-entry that points to a private IP address and circumvent the blacklist.
-This is more useful if you know there is an entire shape of URL that
-you know that will never want synapse to try to spider.
+Optional list of URL matches that the URL preview spider is denied from
+accessing.  This is a usability feature, not a security one. You should use
+`url_preview_ip_range_blacklist` in preference to this, otherwise someone could
+define a public DNS entry that points to a private IP address and circumvent
+the blacklist. Applications that perform redirects or serve different content
+when detecting that Synapse is accessing them can also bypass the blacklist.
+This is more useful if you know there is an entire shape of URL that you know
+that you do not want Synapse to preview.
 
 Each list entry is a dictionary of url component attributes as returned
 by urlparse.urlsplit as applied to the absolute form of the URL.  See
@@ -2251,6 +2316,22 @@ Example configuration:
 turn_shared_secret: "YOUR_SHARED_SECRET"
 ```
 ---
+### `turn_shared_secret_path`
+
+An alternative to [`turn_shared_secret`](#turn_shared_secret):
+allows the shared secret to be specified in an external file.
+
+The file should be a plain text file, containing only the shared secret.
+Synapse reads the shared secret from the given file once at startup.
+
+Example configuration:
+```yaml
+turn_shared_secret_path: /path/to/secrets/file
+```
+
+_Added in Synapse 1.116.0._
+
+---
 ### `turn_username` and `turn_password`
 
 The Username and password if the TURN server needs them and does not use a token.
@@ -2322,7 +2403,7 @@ enable_registration_without_verification: true
 ---
 ### `registrations_require_3pid`
 
-If this is set, users must provide all of the specified types of 3PID when registering an account.
+If this is set, users must provide all of the specified types of [3PID](https://spec.matrix.org/latest/appendices/#3pid-types) when registering an account.
 
 Note that [`enable_registration`](#enable_registration) must also be set to allow account registration.
 
@@ -2347,6 +2428,9 @@ disable_msisdn_registration: true
 
 Mandate that users are only allowed to associate certain formats of
 3PIDs with accounts on this server, as specified by the `medium` and `pattern` sub-options.
+`pattern` is a [Perl-like regular expression](https://docs.python.org/3/library/re.html#module-re).
+
+More information about 3PIDs, allowed `medium` types and their `address` syntax can be found [in the Matrix spec](https://spec.matrix.org/latest/appendices/#3pid-types).
 
 Example configuration:
 ```yaml
@@ -2356,7 +2440,7 @@ allowed_local_3pids:
   - medium: email
     pattern: '^[^@]+@vector\.im$'
   - medium: msisdn
-    pattern: '\+44'
+    pattern: '^44\d{10}$'
 ```
 ---
 ### `enable_3pid_lookup`
@@ -2675,7 +2759,7 @@ Example configuration:
 session_lifetime: 24h
 ```
 ---
-### `refresh_access_token_lifetime`
+### `refreshable_access_token_lifetime`
 
 Time that an access token remains valid for, if the session is using refresh tokens.
 
@@ -3235,8 +3319,8 @@ saml2_config:
     contact_person:
       - given_name: Bob
         sur_name: "the Sysadmin"
-        email_address": ["admin@example.com"]
-        contact_type": technical
+        email_address: ["admin@example.com"]
+        contact_type: technical
 
   saml_session_lifetime: 5m
 
@@ -3533,6 +3617,15 @@ Has the following sub-options:
    users. This allows the CAS SSO flow to be limited to sign in only, rather than
    automatically registering users that have a valid SSO login but do not have
    a pre-registered account. Defaults to true.
+* `allow_numeric_ids`: set to 'true' allow numeric user IDs (default false).
+   This allows CAS SSO flow to provide user IDs composed of numbers only.
+   These identifiers will be prefixed by the letter "u" by default.
+   The prefix can be configured using the "numeric_ids_prefix" option.
+   Be careful to choose the prefix correctly to avoid any possible conflicts
+   (e.g. user 1234 becomes u1234 when a user u1234 already exists).
+* `numeric_ids_prefix`: the prefix you wish to add in front of a numeric user ID
+   when the "allow_numeric_ids" option is set to "true".
+   By default, the prefix is the letter "u" and only alphanumeric characters are allowed.
 
    *Added in Synapse 1.93.0.*
 
@@ -3547,6 +3640,8 @@ cas_config:
     userGroup: "staff"
     department: None
   enable_registration: true
+  allow_numeric_ids: true
+  numeric_ids_prefix: "numericuser"
 ```
 ---
 ### `sso`
@@ -3752,7 +3847,8 @@ This setting defines options related to the user directory.
 This option has the following sub-options:
 * `enabled`:  Defines whether users can search the user directory. If false then
    empty responses are returned to all queries. Defaults to true.
-* `search_all_users`: Defines whether to search all users visible to your HS at the time the search is performed. If set to true, will return all users who share a room with the user from the homeserver.
+* `search_all_users`: Defines whether to search all users visible to your homeserver at the time the search is performed.
+   If set to true, will return all users known to the homeserver matching the search query.
    If false, search results will only contain users
     visible in public rooms and users sharing a room with the requester.
     Defaults to false.
@@ -4075,6 +4171,38 @@ default_power_level_content_override:
    trusted_private_chat: null
    public_chat: null
 ```
+
+The default power levels for each preset are:
+```yaml
+"m.room.name": 50
+"m.room.power_levels": 100
+"m.room.history_visibility": 100
+"m.room.canonical_alias": 50
+"m.room.avatar": 50
+"m.room.tombstone": 100
+"m.room.server_acl": 100
+"m.room.encryption": 100
+```
+
+So a complete example where the default power-levels for a preset are maintained
+but the power level for a new key is set is:
+```yaml
+default_power_level_content_override:
+   private_chat:
+    events:
+      "com.example.foo": 0
+      "m.room.name": 50
+      "m.room.power_levels": 100
+      "m.room.history_visibility": 100
+      "m.room.canonical_alias": 50
+      "m.room.avatar": 50
+      "m.room.tombstone": 100
+      "m.room.server_acl": 100
+      "m.room.encryption": 100
+   trusted_private_chat: null
+   public_chat: null
+```
+
 ---
 ### `forget_rooms_on_leave`
 
@@ -4096,7 +4224,7 @@ By default, no room is excluded.
 Example configuration:
 ```yaml
 exclude_rooms_from_sync:
-    - !foo:example.com
+    - "!foo:example.com"
 ```
 
 ---
@@ -4558,4 +4686,35 @@ background_updates:
     sleep_duration_ms: 300
     min_batch_size: 10
     default_batch_size: 50
+```
+---
+## Auto Accept Invites
+Configuration settings related to automatically accepting invites.
+
+---
+### `auto_accept_invites`
+
+Automatically accepting invites controls whether users are presented with an invite request or if they
+are instead automatically joined to a room when receiving an invite. Set the `enabled` sub-option to true to
+enable auto-accepting invites. Defaults to false.
+This setting has the following sub-options:
+* `enabled`: Whether to run the auto-accept invites logic. Defaults to false.
+* `only_for_direct_messages`: Whether invites should be automatically accepted for all room types, or only
+   for direct messages. Defaults to false.
+* `only_from_local_users`: Whether to only automatically accept invites from users on this homeserver. Defaults to false.
+* `worker_to_run_on`: Which worker to run this module on. This must match 
+  the "worker_name". If not set or `null`, invites will be accepted on the
+  main process.
+
+NOTE: Care should be taken not to enable this setting if the `synapse_auto_accept_invite` module is enabled and installed.
+The two modules will compete to perform the same task and may result in undesired behaviour. For example, multiple join
+events could be generated from a single invite.
+
+Example configuration:
+```yaml
+auto_accept_invites:
+    enabled: true
+    only_for_direct_messages: true
+    only_from_local_users: true
+    worker_to_run_on: "worker_1"
 ```

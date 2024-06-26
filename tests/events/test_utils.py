@@ -625,6 +625,8 @@ class CloneEventTestCase(stdlib_unittest.TestCase):
         )
         original.internal_metadata.stream_ordering = 1234
         self.assertEqual(original.internal_metadata.stream_ordering, 1234)
+        original.internal_metadata.instance_name = "worker1"
+        self.assertEqual(original.internal_metadata.instance_name, "worker1")
 
         cloned = clone_event(original)
         cloned.unsigned["b"] = 3
@@ -632,6 +634,7 @@ class CloneEventTestCase(stdlib_unittest.TestCase):
         self.assertEqual(original.unsigned, {"a": 1, "b": 2})
         self.assertEqual(cloned.unsigned, {"a": 1, "b": 3})
         self.assertEqual(cloned.internal_metadata.stream_ordering, 1234)
+        self.assertEqual(cloned.internal_metadata.instance_name, "worker1")
         self.assertEqual(cloned.internal_metadata.txn_id, "txn")
 
 
@@ -753,7 +756,8 @@ class SerializeEventTestCase(stdlib_unittest.TestCase):
     def test_event_fields_fail_if_fields_not_str(self) -> None:
         with self.assertRaises(TypeError):
             self.serialize(
-                MockEvent(room_id="!foo:bar", content={"foo": "bar"}), ["room_id", 4]  # type: ignore[list-item]
+                MockEvent(room_id="!foo:bar", content={"foo": "bar"}),
+                ["room_id", 4],  # type: ignore[list-item]
             )
 
 

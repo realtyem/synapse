@@ -211,6 +211,8 @@ information.
     ^/_matrix/federation/v1/make_leave/
     ^/_matrix/federation/(v1|v2)/send_join/
     ^/_matrix/federation/(v1|v2)/send_leave/
+    ^/_matrix/federation/v1/make_knock/
+    ^/_matrix/federation/v1/send_knock/
     ^/_matrix/federation/(v1|v2)/invite/
     ^/_matrix/federation/v1/event_auth/
     ^/_matrix/federation/v1/timestamp_to_event/
@@ -535,7 +537,7 @@ the stream writer for the `presence` stream:
 ##### The `push_rules` stream
 
 The following endpoints should be routed directly to the worker configured as
-the stream writer for the `push` stream:
+the stream writer for the `push_rules` stream:
 
     ^/_matrix/client/(api/v1|r0|v3|unstable)/pushrules/
 
@@ -737,6 +739,8 @@ An example for a federation sender instance:
 Handles the media repository. It can handle all endpoints starting with:
 
     /_matrix/media/
+    /_matrix/client/v1/media/
+    /_matrix/federation/v1/media/
 
 ... and the following regular expressions matching media-specific administration APIs:
 
