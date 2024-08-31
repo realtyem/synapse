@@ -898,7 +898,7 @@ def _new_join_event(
         room_version,
         user_id,
         "m.room.member",
-        "",
+        user_id,
         {"membership": "join"},
         auth_events=auth_events,
     )
@@ -913,7 +913,7 @@ def _leave_event(
         room_version,
         user_id,
         "m.room.member",
-        "",
+        user_id,
         {"membership": "leave"},
         auth_events=auth_events,
     )
