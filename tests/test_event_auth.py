@@ -243,7 +243,15 @@ class EventAuthTestCase(unittest.TestCase):
                 event_auth.check_state_independent_auth_rules(event_store, bad_event)
             )
 
-    def test_leave_containing_join_rules_auth_events_pre_v10_room(self) -> None:
+    @parameterized.expand(
+        [
+            (RoomVersions.V9, False),
+            (RoomVersions.V10, True),
+        ]
+    )
+    def test_leave_containing_join_rules_auth_events_pre_v10_room(
+        self, room_version: RoomVersion, should_raise: bool
+    ) -> None:
         """Leave membership events with erroneous join_rules auth_events should only be
             allowed if the room version is 9 or lower. This is a backwards compatibility
             arrangement and should already be fixed in homeservers everywhere.
@@ -260,21 +268,21 @@ class EventAuthTestCase(unittest.TestCase):
         """
         creator = "@creator:example.com"
 
-        create_event = _create_event(RoomVersions.V9, creator)
+        create_event = _create_event(room_version, creator)
         auth_events = [create_event]
 
-        join_event = _new_join_event(RoomVersions.V9, creator, auth_events=auth_events)
+        join_event = _new_join_event(room_version, creator, auth_events=auth_events)
 
         pl_event = _power_levels_event(
-            RoomVersions.V9,
+            room_version,
             creator,
             {"state_default": 30, "users": {"creator": 100}},
         )
 
-        join_rules_event = _join_rules_event(RoomVersions.V9, creator, "public")
+        join_rules_event = _join_rules_event(room_version, creator, "public")
 
         auth_events.extend([join_event, pl_event, join_rules_event])
-        leave_event = _leave_event(RoomVersions.V9, creator, auth_events=auth_events)
+        leave_event = _leave_event(room_version, creator, auth_events=auth_events)
 
         event_store = _StubEventSourceStore()
         event_store.add_events(
@@ -286,9 +294,17 @@ class EventAuthTestCase(unittest.TestCase):
         )
 
         # This should not raise in a V9 room, but will in a V10.
-        get_awaitable_result(
-            event_auth.check_state_independent_auth_rules(event_store, leave_event)
-        )
+        if should_raise:
+            with self.assertRaises(AuthError):
+                get_awaitable_result(
+                    event_auth.check_state_independent_auth_rules(
+                        event_store, leave_event
+                    )
+                )
+        else:
+            get_awaitable_result(
+                event_auth.check_state_independent_auth_rules(event_store, leave_event)
+            )
 
     def test_random_users_cannot_send_state_before_first_pl(self) -> None:
         """
