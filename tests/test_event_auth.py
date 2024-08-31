@@ -243,6 +243,53 @@ class EventAuthTestCase(unittest.TestCase):
                 event_auth.check_state_independent_auth_rules(event_store, bad_event)
             )
 
+    def test_leave_containing_join_rules_auth_events_pre_v10_room(self) -> None:
+        """Leave membership events with erroneous join_rules auth_events should only be
+            allowed if the room version is 9 or lower. This is a backwards compatibility
+            arrangement and should already be fixed in homeservers everywhere.
+
+        https://spec.matrix.org/v1.3/rooms/v9/#authorization-rules
+        2. Reject if event has auth_events that:
+           2. have entries whose type and state_key don’t match those specified by the
+              auth events selection algorithm described in the server specification.
+
+        The problem is that several homeservers misunderstood that and were creating
+        m.room.member events with join_rules when it wasn't necessary. In the case of
+        leave, the events are now rejected forcing the user to be reinserted into the
+        room. This potentially could create additional and unnecessary traffic.
+        """
+        creator = "@creator:example.com"
+
+        create_event = _create_event(RoomVersions.V9, creator)
+        auth_events = [create_event]
+
+        join_event = _new_join_event(RoomVersions.V9, creator, auth_events=auth_events)
+
+        pl_event = _power_levels_event(
+            RoomVersions.V9,
+            creator,
+            {"state_default": 30, "users": {"creator": 100}},
+        )
+
+        join_rules_event = _join_rules_event(RoomVersions.V9, creator, "public")
+
+        auth_events.extend([join_event, pl_event, join_rules_event])
+        leave_event = _leave_event(RoomVersions.V9, creator, auth_events=auth_events)
+
+        event_store = _StubEventSourceStore()
+        event_store.add_events(
+            [create_event, join_event, pl_event, join_rules_event, leave_event]
+        )
+
+        get_awaitable_result(
+            event_auth.check_state_independent_auth_rules(event_store, join_event)
+        )
+
+        # This should not raise in a V9 room, but will in a V10.
+        get_awaitable_result(
+            event_auth.check_state_independent_auth_rules(event_store, leave_event)
+        )
+
     def test_random_users_cannot_send_state_before_first_pl(self) -> None:
         """
         Check that, before the first PL lands, the creator is the only user
@@ -826,6 +873,36 @@ def _join_event(
     )
 
 
+def _new_join_event(
+    room_version: RoomVersion,
+    user_id: str,
+    auth_events: Optional[Iterable[EventBase]] = None,
+) -> EventBase:
+    return _state_event(
+        room_version,
+        user_id,
+        "m.room.member",
+        "",
+        {"membership": "join"},
+        auth_events=auth_events,
+    )
+
+
+def _leave_event(
+    room_version: RoomVersion,
+    user_id: str,
+    auth_events: Optional[Iterable[EventBase]] = None,
+) -> EventBase:
+    return _state_event(
+        room_version,
+        user_id,
+        "m.room.member",
+        "",
+        {"membership": "leave"},
+        auth_events=auth_events,
+    )
+
+
 def _power_levels_event(
     room_version: RoomVersion,
     sender: str,
@@ -881,6 +958,32 @@ def _random_state_event(
             "sender": sender,
             "state_key": "",
             "content": {"membership": "join"},
+            "auth_events": _build_auth_dict_for_room_version(room_version, auth_events),
+        },
+        room_version=room_version,
+    )
+
+
+def _state_event(
+    room_version: RoomVersion,
+    sender: str,
+    state_type: str = "test.state",
+    state_key: str = "",
+    content_override: Optional[Dict[str, Any]] = None,
+    auth_events: Optional[Iterable[EventBase]] = None,
+) -> EventBase:
+    if auth_events is None:
+        auth_events = []
+    if content_override is None:
+        content_override = {"membership": "join"}
+    return make_event_from_dict(
+        {
+            "room_id": TEST_ROOM_ID,
+            **_maybe_get_event_id_dict_for_room_version(room_version),
+            "type": state_type,
+            "sender": sender,
+            "state_key": state_key,
+            "content": content_override,
             "auth_events": _build_auth_dict_for_room_version(room_version, auth_events),
         },
         room_version=room_version,
