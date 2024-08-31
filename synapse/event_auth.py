@@ -220,7 +220,11 @@ async def check_state_independent_auth_rules(
 
     room_id = event.room_id
     auth_dict: MutableStateMap[str] = {}
-    expected_auth_types = auth_types_for_event(event.room_version, event)
+    # Gate that Room Versions above 9 are stricter. Fish the int out for easier reading.
+    # See inside auth_types_for_event() for why.
+    expected_auth_types = auth_types_for_event(
+        event.room_version, event, int(event.room_version.identifier) <= 9
+    )
     for auth_event_id in event.auth_event_ids():
         auth_event = auth_events.get(auth_event_id)
 
@@ -1112,7 +1116,9 @@ def get_public_keys(invite_event: "EventBase") -> List[Dict[str, Any]]:
 
 
 def auth_types_for_event(
-    room_version: RoomVersion, event: Union["EventBase", "EventBuilder"]
+    room_version: RoomVersion,
+    event: Union["EventBase", "EventBuilder"],
+    allow_join_rules_in_leave_membership_events: bool = False,
 ) -> Set[Tuple[str, str]]:
     """Given an event, return a list of (EventType, StateKey) that may be
     needed to auth the event. The returned list may be a superset of what
@@ -1133,6 +1139,20 @@ def auth_types_for_event(
     if event.type == EventTypes.Member:
         membership = event.content["membership"]
         if membership in [Membership.JOIN, Membership.INVITE, Membership.KNOCK]:
+            auth_types.add((EventTypes.JoinRules, ""))
+
+        # Just after the Matrix Spec version 1.2 was cut, a change was made to enforce
+        # strictness in auth membership events. This had the side effect of causing
+        # "leave" membership events containing `m.room.join_rules` to suddenly be
+        # rejected, forcing members back into a room they had already left.
+        #
+        # These 'not-quite-standard' events seem to have not originated from Synapse(
+        # nor Dendrite), but can safely be included specifically as a backwards
+        # compatibility hack for rooms prior to v10.
+        if (
+            allow_join_rules_in_leave_membership_events
+            and membership == Membership.LEAVE
+        ):
             auth_types.add((EventTypes.JoinRules, ""))
 
         auth_types.add((EventTypes.Member, event.state_key))
