@@ -383,7 +383,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
                 origin_links = cached_links.setdefault(origin_chain_id, [])
 
-                found_cached_chains.add(origin_chain_id)
+                # found_cached_chains.add(origin_chain_id)
 
                 for origin_sequence_number, target_chains in entry.items():
                     for (
