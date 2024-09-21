@@ -78,6 +78,7 @@ from synapse.types import (
 from synapse.types.handlers import SLIDING_SYNC_DEFAULT_BUMP_EVENT_TYPES
 from synapse.types.state import StateFilter
 from synapse.util import json_encoder
+from synapse.util.caches.lrucache import LruCache
 from synapse.util.iterutils import batch_iter, sorted_topologically
 from synapse.util.stringutils import non_null_str_or_none
 
@@ -259,6 +260,13 @@ class PersistEventsStore:
         # generators are chained off them so doing so is a bit of a PITA.
         self._backfill_id_gen: AbstractStreamIdGenerator = self.store._backfill_id_gen
         self._stream_id_gen: AbstractStreamIdGenerator = self.store._stream_id_gen
+
+        # Dict[origin_chain_id, Dict[origin_seq_num,
+        #      Dict[target_chain_id, target_seq_num]]]
+        # Size of this cache is the same as what is in EventFederationWorkerStore
+        self._chain_links_cache: LruCache[int, Dict[int, Dict[int, int]]] = LruCache(
+            50000, "chain_links_cache"
+        )
 
     @trace
     async def _persist_events_and_state_updates(
@@ -755,6 +763,7 @@ class PersistEventsStore:
             event_to_room_id,
             event_to_types,
             event_to_auth_chain,
+            self._chain_links_cache,
         )
 
     async def _get_events_which_are_prevs(self, event_ids: Iterable[str]) -> List[str]:
@@ -1067,6 +1076,7 @@ class PersistEventsStore:
         event_to_room_id: Dict[str, str],
         event_to_types: Dict[str, Tuple[str, str]],
         event_to_auth_chain: Dict[str, StrCollection],
+        chain_link_cache: LruCache[int, Dict[int, Dict[int, int]]],
     ) -> None:
         """Calculate and persist the chain cover index for the given events.
 
@@ -1084,6 +1094,7 @@ class PersistEventsStore:
             event_to_room_id,
             event_to_types,
             event_to_auth_chain,
+            chain_link_cache,
         )
         cls._persist_chain_cover_index(txn, db_pool, new_event_links)
 
@@ -1096,6 +1107,7 @@ class PersistEventsStore:
         event_to_room_id: Dict[str, str],
         event_to_types: Dict[str, Tuple[str, str]],
         event_to_auth_chain: Dict[str, StrCollection],
+        chain_link_cache: LruCache[int, Dict[int, Dict[int, int]]],
     ) -> Dict[str, NewEventChainLinks]:
         """Calculate the chain cover index for the given events.
 
@@ -1287,7 +1299,7 @@ class PersistEventsStore:
         chain_links = _LinkMap()
 
         for links in EventFederationStore._get_chain_links(
-            txn, {chain_id for chain_id, _ in chain_map.values()}
+            txn, {chain_id for chain_id, _ in chain_map.values()}, chain_link_cache
         ):
             for origin_chain_id, inner_links in links.items():
                 for (

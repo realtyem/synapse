@@ -54,6 +54,7 @@ from synapse.types.handlers import SLIDING_SYNC_DEFAULT_BUMP_EVENT_TYPES
 from synapse.types.state import StateFilter
 from synapse.types.storage import _BackgroundUpdates
 from synapse.util import json_encoder
+from synapse.util.caches.lrucache import LruCache
 from synapse.util.iterutils import batch_iter
 
 if TYPE_CHECKING:
@@ -115,6 +116,13 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
         hs: "HomeServer",
     ):
         super().__init__(database, db_conn, hs)
+
+        # Dict[origin_chain_id, Dict[origin_seq_num,
+        #      Dict[target_chain_id, target_seq_num]]]
+        # Size of this cache is the same as what is in EventFederationWorkerStore
+        self._chain_links_cache: LruCache[int, Dict[int, Dict[int, int]]] = LruCache(
+            50000, "chain_links_cache"
+        )
 
         self.db_pool.updates.register_background_update_handler(
             _BackgroundUpdates.EVENT_ORIGIN_SERVER_TS_NAME,
@@ -1116,6 +1124,7 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
             event_to_room_id,
             event_to_types,
             cast(Dict[str, StrCollection], event_to_auth_chain),
+            self._chain_links_cache,
         )
 
         return _CalculateChainCover(
