@@ -119,11 +119,6 @@ class BackfillQueueNavigationItem:
     type: str
 
 
-@attr.s(frozen=True, slots=True, auto_attribs=True)
-class _ChainLinksCacheEntry:
-    links: List[Tuple[int, int, int, "_ChainLinksCacheEntry"]] = attr.Factory(list)
-
-
 class _NoChainCoverIndex(Exception):
     def __init__(self, room_id: str):
         super().__init__("Unexpectedly no chain cover for events in %s" % (room_id,))
@@ -144,8 +139,10 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         self.hs = hs
 
-        self._chain_links_cache: LruCache[int, _ChainLinksCacheEntry] = LruCache(
-            max_size=10000, cache_name="chain_links_cache"
+        # Dict[origin_chain_id, Dict[origin_seq_num, Dict[target_chain_id, target_seq_num]]]
+        # Most of the entries will be rather small, so I'm ok with a large number of them.
+        self._chain_links_cache: LruCache[int, Dict[int, Dict[int, int]]] = LruCache(
+            50000, "chain_links_cache"
         )
 
         if hs.config.worker.run_background_tasks:
@@ -356,7 +353,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         cls,
         txn: LoggingTransaction,
         chains_to_fetch: Collection[int],
-        cache: Optional[LruCache[int, _ChainLinksCacheEntry]] = None,
+        cache: Optional[LruCache[int, Dict[int, Dict[int, int]]]] = None,
     ) -> Generator[Dict[int, List[Tuple[int, int, int]]], None, None]:
         """Fetch all auth chain links from the given set of chains, and all
         links from those chains, recursively.
@@ -369,41 +366,58 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         """
 
         found_cached_chains = set()
-        if cache:
-            entries: Dict[int, _ChainLinksCacheEntry] = {}
-            for chain_id in chains_to_fetch:
-                entry = cache.get(chain_id)
-                if entry:
-                    entries[chain_id] = entry
+        if cache is not None:
+            # Grab all the initial chain_to_fetch data, if it's there and send it out.
+            # This way we can use this collection of data and mutate it as we see fit.
+            entries: Dict[int, Dict[int, Dict[int, int]]] = {}
+            for origin_chain_id in chains_to_fetch:
+                c_entry = cache.get(origin_chain_id)
+                if c_entry:
+                    entries[origin_chain_id] = c_entry
 
             cached_links: Dict[int, List[Tuple[int, int, int]]] = {}
             while entries:
+                # remove the entry, recursively discovered target chains are re-added if
+                # they've not already been processed
                 origin_chain_id, entry = entries.popitem()
 
-                for (
-                    origin_sequence_number,
-                    target_chain_id,
-                    target_sequence_number,
-                    target_entry,
-                ) in entry.links:
-                    if target_chain_id in found_cached_chains:
-                        continue
+                origin_links = cached_links.setdefault(origin_chain_id, [])
 
-                    found_cached_chains.add(target_chain_id)
+                found_cached_chains.add(origin_chain_id)
 
-                    cache.get(chain_id)
-
-                    entries[chain_id] = target_entry
-                    cached_links.setdefault(origin_chain_id, []).append(
-                        (
-                            origin_sequence_number,
-                            target_chain_id,
-                            target_sequence_number,
+                for origin_sequence_number, target_chains in entry.items():
+                    for (
+                        target_chain_id,
+                        target_sequence_number,
+                    ) in target_chains.items():
+                        origin_links.append(
+                            (
+                                origin_sequence_number,
+                                target_chain_id,
+                                target_sequence_number,
+                            )
                         )
-                    )
+
+                        if target_chain_id in found_cached_chains:
+                            continue
+
+                        found_cached_chains.add(target_chain_id)
+
+                        # Retrieve the cache entry for a target link. Copy the target
+                        # chain data specified by the target sequence from above
+                        # *only* from that entry to add back to the processor.
+                        # Otherwise, we risk not only over-processing but also data
+                        # that will be unused.
+                        t_entry = cache.get(target_chain_id)
+
+                        if t_entry:
+                            target_entry = t_entry.get(target_sequence_number)
+                            if target_entry:
+                                entries.setdefault(target_chain_id, {}).setdefault(
+                                    target_sequence_number, {}
+                                ).update(target_entry)
 
             yield cached_links
-
 
         # This query is structured to first get all chain IDs reachable, and
         # then pull out all links from those chains. This does pull out more
@@ -411,12 +425,6 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # structuring the recursive part of query to pull out the links without
         # also returning large quantities of redundant data (which can make it a
         # lot slower).
-
-        if isinstance(txn.database_engine, PostgresEngine):
-            # JIT and sequential scans sometimes get hit on this code path, which
-            # can make the queries much more expensive
-            txn.execute("SET LOCAL jit = off")
-            txn.execute("SET LOCAL enable_seqscan = off")
 
         sql = """
             WITH RECURSIVE links(chain_id) AS (
@@ -442,13 +450,20 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # the chain IDs in reverse order, as there will be a correlation between
         # the order of chain IDs and links (i.e., higher chain IDs are more
         # likely to depend on lower chain IDs than vice versa).
-        BATCH_SIZE = 5000
+        BATCH_SIZE = 1000
+        # Runtime complexity of SortedSet: O(n*log(n))
         chains_to_fetch_sorted = SortedSet(chains_to_fetch)
         chains_to_fetch_sorted.difference_update(found_cached_chains)
 
+        if isinstance(txn.database_engine, PostgresEngine) and chains_to_fetch_sorted:
+            # JIT and sequential scans sometimes get hit on this code path, which
+            # can make the queries much more expensive. But only do so if any data to
+            # query for still exists
+            txn.execute("SET LOCAL jit = off")
+            txn.execute("SET LOCAL enable_seqscan = off")
 
         while chains_to_fetch_sorted:
-            batch2 = list(chains_to_fetch_sorted.islice(-BATCH_SIZE))
+            batch2 = tuple(chains_to_fetch_sorted.islice(0, BATCH_SIZE, reverse=True))
             chains_to_fetch_sorted.difference_update(batch2)
 
             clause, args = make_in_list_sql_clause(
@@ -456,10 +471,9 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
             )
             txn.execute(sql % (clause,), args)
 
-
             links: Dict[int, List[Tuple[int, int, int]]] = {}
 
-            cache_entries: Dict[int, _ChainLinksCacheEntry] = {}
+            prep_cache_entries: Dict[int, Dict[int, Dict[int, int]]] = {}
 
             for (
                 origin_chain_id,
@@ -471,26 +485,31 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                     (origin_sequence_number, target_chain_id, target_sequence_number)
                 )
 
-                if cache:
-                    origin_entry = cache_entries.setdefault(
-                        origin_chain_id, _ChainLinksCacheEntry()
-                    )
-                    target_entry = cache_entries.setdefault(
-                        target_chain_id, _ChainLinksCacheEntry()
-                    )
-                    origin_entry.links.append(
-                        (
-                            origin_sequence_number,
-                            target_chain_id,
-                            target_sequence_number,
-                            target_entry,
-                        )
+                if cache is not None:
+                    prep_cache_entries.setdefault(origin_chain_id, {}).setdefault(
+                        origin_sequence_number, {}
+                    ).update({target_chain_id: target_sequence_number})
+
+                    prep_cache_entries.setdefault(target_chain_id, {}).setdefault(
+                        target_sequence_number, {}
                     )
 
-            if cache:
-                for chain_id, entry in cache_entries.items():
-                    if chain_id not in cache:
-                        cache[chain_id] = entry
+            if cache is not None:
+                for origin_chain_id, entry in prep_cache_entries.items():
+                    cache_entry = cache.get(
+                        origin_chain_id,
+                        {},
+                        update_last_access=False,
+                        update_metrics=False,
+                    )
+
+                    # This should merge the new data with the existing data. If my
+                    # understanding is correct, there is no trample on existing data
+                    # taking place.
+                    # TODO: try and design an efficient short-circuit
+                    # if cache_entry.get(origin_sequence_number, {}).get(target_chain_id, None) != None:
+                    cache_entry.update(entry)
+                    cache.set(origin_chain_id, cache_entry)
 
             chains_to_fetch_sorted.difference_update(links)
 
