@@ -21,7 +21,6 @@
 import datetime
 import itertools
 import logging
-import time
 from queue import Empty, PriorityQueue
 from typing import (
     TYPE_CHECKING,
@@ -450,7 +449,6 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         logger.info("CHAINS: Fetching chain links %d", len(chains_to_fetch_sorted))
 
-        start_block = time.monotonic()
 
         while chains_to_fetch_sorted:
             batch2 = list(chains_to_fetch_sorted.islice(-BATCH_SIZE))
@@ -460,11 +458,8 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
             clause, args = make_in_list_sql_clause(
                 txn.database_engine, "origin_chain_id", batch2
             )
-            start_query = time.monotonic()
             txn.execute(sql % (clause,), args)
-            end_query = time.monotonic()
 
-            logger.info("CHAINS: query took %d ms", (end_query - start_query) * 1000)
 
             links: Dict[int, List[Tuple[int, int, int]]] = {}
 
@@ -508,9 +503,6 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
             yield links
 
-        end_block = time.monotonic()
-
-        logger.info("CHAINS: block took %d ms", (end_block - start_block) * 1000)
 
     def _get_auth_chain_ids_txn(
         self, txn: LoggingTransaction, event_ids: Collection[str], include_given: bool
