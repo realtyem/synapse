@@ -63,6 +63,7 @@ from synapse.util.caches.descriptors import cached
 from synapse.util.caches.lrucache import LruCache
 from synapse.util.cancellation import cancellable
 from synapse.util.iterutils import batch_iter
+from synapse.util.metrics import Measure
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -655,118 +656,123 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                     seen_chains.add(chain_id)
                     chain_to_event.setdefault(chain_id, {})[sequence_number] = event_id
 
-        fetch_chain_info(initial_events)
+        with Measure(
+            self.hs.get_clock(), "_get_auth_chain_difference_using_cover_index"
+        ):
+            fetch_chain_info(initial_events)
 
-        # Check that we actually have a chain ID for all the events.
-        events_missing_chain_info = initial_events.difference(chain_info)
+            # Check that we actually have a chain ID for all the events.
+            events_missing_chain_info = initial_events.difference(chain_info)
 
-        # The result set to return, i.e. the auth chain difference.
-        result: Set[str] = set()
+            # The result set to return, i.e. the auth chain difference.
+            result: Set[str] = set()
 
-        if events_missing_chain_info:
-            # For some reason we have events we haven't calculated the chain
-            # index for, so we need to handle those separately. This should only
-            # happen for older rooms where the server doesn't have all the auth
-            # events.
-            result = self._fixup_auth_chain_difference_sets(
-                txn,
-                room_id,
-                state_sets=state_sets,
-                events_missing_chain_info=events_missing_chain_info,
-                events_that_have_chain_index=chain_info,
-            )
+            if events_missing_chain_info:
+                # For some reason we have events we haven't calculated the chain
+                # index for, so we need to handle those separately. This should only
+                # happen for older rooms where the server doesn't have all the auth
+                # events.
+                result = self._fixup_auth_chain_difference_sets(
+                    txn,
+                    room_id,
+                    state_sets=state_sets,
+                    events_missing_chain_info=events_missing_chain_info,
+                    events_that_have_chain_index=chain_info,
+                )
 
-            # We now need to refetch any events that we have added to the state
-            # sets.
-            new_events_to_fetch = {
-                event_id
-                for state_set in state_sets
-                for event_id in state_set
-                if event_id not in initial_events
-            }
+                # We now need to refetch any events that we have added to the state
+                # sets.
+                new_events_to_fetch = {
+                    event_id
+                    for state_set in state_sets
+                    for event_id in state_set
+                    if event_id not in initial_events
+                }
 
-            fetch_chain_info(new_events_to_fetch)
+                fetch_chain_info(new_events_to_fetch)
 
-        # Corresponds to `state_sets`, except as a map from chain ID to max
-        # sequence number reachable from the state set.
-        set_to_chain: List[Dict[int, int]] = []
-        for state_set in state_sets:
-            chains: Dict[int, int] = {}
-            set_to_chain.append(chains)
+            # Corresponds to `state_sets`, except as a map from chain ID to max
+            # sequence number reachable from the state set.
+            set_to_chain: List[Dict[int, int]] = []
+            for state_set in state_sets:
+                chains: Dict[int, int] = {}
+                set_to_chain.append(chains)
 
-            for state_id in state_set:
-                chain_id, seq_no = chain_info[state_id]
+                for state_id in state_set:
+                    chain_id, seq_no = chain_info[state_id]
 
-                chains[chain_id] = max(seq_no, chains.get(chain_id, 0))
+                    chains[chain_id] = max(seq_no, chains.get(chain_id, 0))
 
-        # Now we look up all links for the chains we have, adding chains that
-        # are reachable from any event.
-        for links in self._get_chain_links(txn, seen_chains, self._chain_links_cache):
-            for chains in set_to_chain:
-                for chain_id in links:
-                    if chain_id not in chains:
-                        continue
+            # Now we look up all links for the chains we have, adding chains that
+            # are reachable from any event.
+            for links in self._get_chain_links(
+                txn, seen_chains, self._chain_links_cache
+            ):
+                for chains in set_to_chain:
+                    for chain_id in links:
+                        if chain_id not in chains:
+                            continue
 
-                    _materialize(chain_id, chains[chain_id], links, chains)
+                        _materialize(chain_id, chains[chain_id], links, chains)
 
-                seen_chains.update(chains)
+                    seen_chains.update(chains)
 
-        # Now for each chain we figure out the maximum sequence number reachable
-        # from *any* state set and the minimum sequence number reachable from
-        # *all* state sets. Events in that range are in the auth chain
-        # difference.
+            # Now for each chain we figure out the maximum sequence number reachable
+            # from *any* state set and the minimum sequence number reachable from
+            # *all* state sets. Events in that range are in the auth chain
+            # difference.
 
-        # Mapping from chain ID to the range of sequence numbers that should be
-        # pulled from the database.
-        chain_to_gap: Dict[int, Tuple[int, int]] = {}
+            # Mapping from chain ID to the range of sequence numbers that should be
+            # pulled from the database.
+            chain_to_gap: Dict[int, Tuple[int, int]] = {}
 
-        for chain_id in seen_chains:
-            min_seq_no = min(chains.get(chain_id, 0) for chains in set_to_chain)
-            max_seq_no = max(chains.get(chain_id, 0) for chains in set_to_chain)
+            for chain_id in seen_chains:
+                min_seq_no = min(chains.get(chain_id, 0) for chains in set_to_chain)
+                max_seq_no = max(chains.get(chain_id, 0) for chains in set_to_chain)
 
-            if min_seq_no < max_seq_no:
-                # We have a non empty gap, try and fill it from the events that
-                # we have, otherwise add them to the list of gaps to pull out
-                # from the DB.
-                for seq_no in range(min_seq_no + 1, max_seq_no + 1):
-                    event_id = chain_to_event.get(chain_id, {}).get(seq_no)
-                    if event_id:
-                        result.add(event_id)
-                    else:
-                        chain_to_gap[chain_id] = (min_seq_no, max_seq_no)
-                        break
+                if min_seq_no < max_seq_no:
+                    # We have a non empty gap, try and fill it from the events that
+                    # we have, otherwise add them to the list of gaps to pull out
+                    # from the DB.
+                    for seq_no in range(min_seq_no + 1, max_seq_no + 1):
+                        event_id = chain_to_event.get(chain_id, {}).get(seq_no)
+                        if event_id:
+                            result.add(event_id)
+                        else:
+                            chain_to_gap[chain_id] = (min_seq_no, max_seq_no)
+                            break
 
-        if not chain_to_gap:
-            # If there are no gaps to fetch, we're done!
-            return result
+            if not chain_to_gap:
+                # If there are no gaps to fetch, we're done!
+                return result
 
-        if isinstance(self.database_engine, PostgresEngine):
-            # We can use `execute_values` to efficiently fetch the gaps when
-            # using postgres.
-            sql = """
-                SELECT event_id
-                FROM event_auth_chains AS c, (VALUES ?) AS l(chain_id, min_seq, max_seq)
-                WHERE
-                    c.chain_id = l.chain_id
-                    AND min_seq < sequence_number AND sequence_number <= max_seq
-            """
+            if isinstance(self.database_engine, PostgresEngine):
+                # We can use `execute_values` to efficiently fetch the gaps when
+                # using postgres.
+                sql = """
+                    SELECT event_id
+                    FROM event_auth_chains AS c, (VALUES ?) AS l(chain_id, min_seq, max_seq)
+                    WHERE
+                        c.chain_id = l.chain_id
+                        AND min_seq < sequence_number AND sequence_number <= max_seq
+                """
 
-            args = [
-                (chain_id, min_no, max_no)
-                for chain_id, (min_no, max_no) in chain_to_gap.items()
-            ]
+                args = [
+                    (chain_id, min_no, max_no)
+                    for chain_id, (min_no, max_no) in chain_to_gap.items()
+                ]
 
-            rows = txn.execute_values(sql, args)
-            result.update(r for (r,) in rows)
-        else:
-            # For SQLite we just fall back to doing a noddy for loop.
-            sql = """
-                SELECT event_id FROM event_auth_chains
-                WHERE chain_id = ? AND ? < sequence_number AND sequence_number <= ?
-            """
-            for chain_id, (min_no, max_no) in chain_to_gap.items():
-                txn.execute(sql, (chain_id, min_no, max_no))
-                result.update(r for (r,) in txn)
+                rows = txn.execute_values(sql, args)
+                result.update(r for (r,) in rows)
+            else:
+                # For SQLite we just fall back to doing a noddy for loop.
+                sql = """
+                    SELECT event_id FROM event_auth_chains
+                    WHERE chain_id = ? AND ? < sequence_number AND sequence_number <= ?
+                """
+                for chain_id, (min_no, max_no) in chain_to_gap.items():
+                    txn.execute(sql, (chain_id, min_no, max_no))
+                    result.update(r for (r,) in txn)
 
         return result
 
