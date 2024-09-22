@@ -451,7 +451,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # the chain IDs in reverse order, as there will be a correlation between
         # the order of chain IDs and links (i.e., higher chain IDs are more
         # likely to depend on lower chain IDs than vice versa).
-        BATCH_SIZE = 1000
+        BATCH_SIZE = 50000
         # Runtime complexity of SortedSet: O(n*log(n))
         chains_to_fetch_sorted = SortedSet(chains_to_fetch)
         chains_to_fetch_sorted.difference_update(found_cached_chains)
