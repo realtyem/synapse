@@ -45,6 +45,7 @@ class IncorrectDatabaseSetup(RuntimeError):
 
 ConnectionType = TypeVar("ConnectionType", bound=Connection)
 CursorType = TypeVar("CursorType", bound=Cursor)
+# IsolationLevelType will represent the value, not the key...
 IsolationLevelType = TypeVar("IsolationLevelType")
 
 
@@ -132,7 +133,7 @@ class BaseDatabaseEngine(
 
     @abc.abstractmethod
     def attempt_to_set_isolation_level(
-        self, conn: ConnectionType, isolation_level: Optional[IsolationLevelType]
+        self, conn: ConnectionType, isolation_level: Optional[IsolationLevel]
     ) -> None:
         """Attempt to set the connections isolation level.
 

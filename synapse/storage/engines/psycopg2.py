@@ -44,7 +44,7 @@ class Psycopg2Engine(
             IsolationLevel.SERIALIZABLE: psycopg2.extensions.ISOLATION_LEVEL_SERIALIZABLE,
         }
         self.default_isolation_level = (
-            psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ
+            IsolationLevel.REPEATABLE_READ
         )
         self.config = database_config
 
@@ -76,13 +76,17 @@ class Psycopg2Engine(
         return conn.set_session(autocommit=autocommit)
 
     def attempt_to_set_isolation_level(
-        self, conn: psycopg2.extensions.connection, isolation_level: Optional[int]
+        self,
+        conn: psycopg2.extensions.connection,
+        isolation_level: Optional[IsolationLevel],
     ) -> None:
+        # Have to do a little bit of variable juggling here. Psycopg2 expects this to
+        # be set as an int and not as the IntEnum that IsolationLevel registers as.
         if isolation_level is None:
-            isolation_level = self.default_isolation_level
+            final_isolation_lvl = self.isolation_level_map[self.default_isolation_level]
         else:
-            isolation_level = self.isolation_level_map[isolation_level]
-        return conn.set_isolation_level(isolation_level)
+            final_isolation_lvl = self.isolation_level_map[isolation_level]
+        return conn.set_isolation_level(final_isolation_lvl)
 
     @staticmethod
     def executescript(cursor: psycopg2.extensions.cursor, script: str) -> None:
