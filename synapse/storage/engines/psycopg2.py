@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Any, Mapping, Optional, NoReturn
+from typing import Any, Mapping, NoReturn, Optional
 
 import psycopg2.extensions
 

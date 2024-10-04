@@ -14,7 +14,6 @@
 from types import TracebackType
 from typing import (
     Any,
-    Callable,
     Iterator,
     List,
     Mapping,
@@ -35,20 +34,17 @@ SQLQueryParameters = Union[Sequence[Any], Mapping[str, Any]]
 
 
 class Cursor(Protocol):
-    def execute(self, sql: str, parameters: SQLQueryParameters = ...) -> Any:
-        ...
+    def execute(self, sql: str, parameters: SQLQueryParameters = ...) -> Any: ...
 
-    def executemany(self, sql: str, parameters: Sequence[SQLQueryParameters]) -> Any:
-        ...
+    def executemany(
+        self, sql: str, parameters: Sequence[SQLQueryParameters]
+    ) -> Any: ...
 
-    def fetchone(self) -> Optional[Tuple]:
-        ...
+    def fetchone(self) -> Optional[Tuple]: ...
 
-    def fetchmany(self, size: Optional[int] = ...) -> List[Tuple]:
-        ...
+    def fetchmany(self, size: Optional[int] = ...) -> List[Tuple]: ...
 
-    def fetchall(self) -> List[Tuple]:
-        ...
+    def fetchall(self) -> List[Tuple]: ...
 
     @property
     def description(
@@ -63,36 +59,28 @@ class Cursor(Protocol):
     def rowcount(self) -> int:
         return 0
 
-    def __iter__(self) -> Iterator[Tuple]:
-        ...
+    def __iter__(self) -> Iterator[Tuple]: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 class Connection(Protocol):
-    def cursor(self) -> Cursor:
-        ...
+    def cursor(self) -> Cursor: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
-    def commit(self) -> None:
-        ...
+    def commit(self) -> None: ...
 
-    def rollback(self) -> None:
-        ...
+    def rollback(self) -> None: ...
 
-    def __enter__(self) -> "Connection":
-        ...
+    def __enter__(self) -> "Connection": ...
 
     def __exit__(
         self,
         exc_type: Optional[Type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
-    ) -> Optional[bool]:
-        ...
+    ) -> Optional[bool]: ...
 
 
 class DBAPI2Module(Protocol):
@@ -122,24 +110,20 @@ class DBAPI2Module(Protocol):
     # explain why this is necessary for safety. TL;DR: we shouldn't be able to write
     # to `x`, only read from it. See also https://github.com/python/mypy/issues/6002 .
     @property
-    def Warning(self) -> Type[Exception]:
-        ...
+    def Warning(self) -> Type[Exception]: ...
 
     @property
-    def Error(self) -> Type[Exception]:
-        ...
+    def Error(self) -> Type[Exception]: ...
 
     # Errors are divided into `InterfaceError`s (something went wrong in the database
     # driver) and `DatabaseError`s (something went wrong in the database). These are
     # both subclasses of `Error`, but we can't currently express this in type
     # annotations due to https://github.com/python/mypy/issues/8397
     @property
-    def InterfaceError(self) -> Type[Exception]:
-        ...
+    def InterfaceError(self) -> Type[Exception]: ...
 
     @property
-    def DatabaseError(self) -> Type[Exception]:
-        ...
+    def DatabaseError(self) -> Type[Exception]: ...
 
     # Everything below is a subclass of `DatabaseError`.
 
@@ -148,8 +132,7 @@ class DBAPI2Module(Protocol):
     # - An invalid date time was provided.
     # - A string contained a null code point.
     @property
-    def DataError(self) -> Type[Exception]:
-        ...
+    def DataError(self) -> Type[Exception]: ...
 
     # Roughly: something went wrong in the database, but it's not within the application
     # programmer's control. Examples:
@@ -160,21 +143,18 @@ class DBAPI2Module(Protocol):
     # - The database ran out of resources, such as storage, memory, connections, etc.
     # - The database encountered an error from the operating system.
     @property
-    def OperationalError(self) -> Type[Exception]:
-        ...
+    def OperationalError(self) -> Type[Exception]: ...
 
     # Roughly: we've given the database data which breaks a rule we asked it to enforce.
     # Examples:
     # - Stop, criminal scum! You violated the foreign key constraint
     # - Also check constraints, non-null constraints, etc.
     @property
-    def IntegrityError(self) -> Type[Exception]:
-        ...
+    def IntegrityError(self) -> Type[Exception]: ...
 
     # Roughly: something went wrong within the database server itself.
     @property
-    def InternalError(self) -> Type[Exception]:
-        ...
+    def InternalError(self) -> Type[Exception]: ...
 
     # Roughly: the application did something silly that needs to be fixed. Examples:
     # - We don't have permissions to do something.
@@ -182,16 +162,13 @@ class DBAPI2Module(Protocol):
     # - We tried to use a reserved name.
     # - We referred to a column that doesn't exist.
     @property
-    def ProgrammingError(self) -> Type[Exception]:
-        ...
+    def ProgrammingError(self) -> Type[Exception]: ...
 
     # Roughly: we've tried to do something that this database doesn't support.
     @property
-    def NotSupportedError(self) -> Type[Exception]:
-        ...
+    def NotSupportedError(self) -> Type[Exception]: ...
 
-    def connect(self, *args: Any, **kwargs: Any) -> Connection:
-        ...
+    def connect(self, *args: Any, **kwargs: Any) -> Connection: ...
 
 
 __all__ = ["Cursor", "Connection", "DBAPI2Module"]

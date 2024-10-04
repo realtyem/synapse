@@ -21,7 +21,7 @@
 
 import abc
 import logging
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Tuple, Type, cast, Generic
+from typing import TYPE_CHECKING, Any, Generic, Mapping, Optional, Tuple, cast
 
 from synapse.storage.engines._base import (
     AUTO_INCREMENT_PRIMARY_KEYPLACEHOLDER,
