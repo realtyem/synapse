@@ -55,6 +55,11 @@ class BaseDatabaseEngine(
     def __init__(self, module: DBAPI2Module, config: Mapping[str, Any]):
         self.module = module
 
+    @abc.abstractmethod
+    def set_statement_timeout(
+        self, cursor: CursorType, statement_timeout: int
+    ) -> None: ...
+
     @property
     @abc.abstractmethod
     def single_threaded(self) -> bool: ...

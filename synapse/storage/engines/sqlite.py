@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, List, Mapping, Optional
 from synapse.storage.engines import BaseDatabaseEngine
 from synapse.storage.engines._base import (
     AUTO_INCREMENT_PRIMARY_KEYPLACEHOLDER,
+    CursorType,
     IsolationLevel,
 )
 from synapse.storage.types import Cursor
@@ -63,6 +64,9 @@ class Sqlite3Engine(
         # in the DB yet.
         self._current_state_group_id = None
         self._current_state_group_id_lock = threading.Lock()
+
+    def set_statement_timeout(self, cursor: CursorType, statement_timeout: int) -> None:
+        pass
 
     @property
     def single_threaded(self) -> bool:

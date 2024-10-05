@@ -73,10 +73,11 @@ class PostgresEngine(
         """
         ...
 
-    @abc.abstractmethod
     def set_statement_timeout(self, cursor: CursorType, statement_timeout: int) -> None:
-        """Configure the current cursor's statement timeout."""
-        ...
+        # psycopg has some hang-ups about using SET that psycopg2 does not have. Server
+        # side bindings seem to have a hand in it. So, use a client side binding as it
+        # is fairly straight forward
+        cursor.execute(f"SET statement_timeout TO {statement_timeout}")
 
     @property
     def single_threaded(self) -> bool:
