@@ -63,7 +63,12 @@ from synapse.logging.context import (
 from synapse.metrics import LaterGauge, register_threadpool
 from synapse.metrics.background_process_metrics import run_as_background_process
 from synapse.storage.background_updates import BackgroundUpdater
-from synapse.storage.engines import BaseDatabaseEngine, PostgresEngine, Sqlite3Engine
+from synapse.storage.engines import (
+    BaseDatabaseEngine,
+    PostgresEngine,
+    PsycopgEngine,
+    Sqlite3Engine,
+)
 from synapse.storage.engines._base import IsolationLevel
 from synapse.storage.types import Connection, Cursor, SQLQueryParameters
 from synapse.types import StrCollection
@@ -137,6 +142,13 @@ def make_pool(
                 LoggingDatabaseConnection(conn, engine, "on_new_connection")
             )
 
+    if isinstance(engine, PsycopgEngine):
+        # Only set this on the new PsycopgEngine, psycopg2 will pass it into the
+        # connect() function but will think it is part of a dsn which is incorrect. I
+        # believe this can be made cleaner with the Psycopg version of a ConnectionPool,
+        # but needs more investigation.
+        db_args.setdefault("autocommit", True)
+
     connection_pool = adbapi.ConnectionPool(
         db_config.config["name"],
         cp_reactor=reactor,
@@ -165,7 +177,11 @@ def make_conn(
         for k, v in db_config.config.get("args", {}).items()
         if not k.startswith("cp_")
     }
-    native_db_conn = engine.module.connect(**db_params)
+    if isinstance(engine, PsycopgEngine):
+        native_db_conn = engine.module.connect(autocommit=True, **db_params)
+    else:
+        native_db_conn = engine.module.connect(**db_params)
+
     db_conn = LoggingDatabaseConnection(native_db_conn, engine, default_txn_name)
 
     engine.on_new_connection(db_conn)
