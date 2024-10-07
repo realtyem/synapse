@@ -478,7 +478,8 @@ class LoggingTransaction:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> R:
-        # Generate a one-line version of the SQL to better log it.
+        # Generate a one-line version of the SQL to better log it. If you pass in a
+        # Composed object from psycopg, you're gonna have a bad time
         one_line_sql = self._make_sql_one_line(sql)
 
         # TODO(paul): Maybe use 'info' and 'debug' for values?
