@@ -90,7 +90,10 @@ class SQLBaseStoreTestCase(unittest.TestCase):
         hs = TestHomeServer("test", config=config)
 
         if USE_POSTGRES_FOR_TESTS:
-            db_config = {"name": "psycopg2", "args": {}}
+            if USE_POSTGRES_FOR_TESTS == "psycopg":
+                db_config = {"name": "psycopg", "args": {}}
+            else:
+                db_config = {"name": "psycopg2", "args": {}}
         else:
             db_config = {"name": "sqlite3"}
         engine = create_engine(db_config)
