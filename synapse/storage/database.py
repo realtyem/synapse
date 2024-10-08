@@ -390,10 +390,12 @@ class LoggingTransaction:
         """Similar to `executemany`, except `txn.rowcount` will not be correct
         afterwards.
 
-        More efficient than `executemany` on PostgreSQL
+        More efficient than `executemany` on PostgreSQL/psycopg2
+        psycopg(3) will have server side binding and pipelining mode that will make
+        `executemany()` more efficient
         """
 
-        if isinstance(self.database_engine, PostgresEngine):
+        if isinstance(self.database_engine, Psycopg2Engine):
             from psycopg2.extras import execute_batch
 
             # TODO: is it safe for values to be Iterable[Iterable[Any]] here?
