@@ -723,20 +723,18 @@ class UserDirectoryBackgroundUpdateStore(StateDeltasStore):
         if isinstance(self.database_engine, PostgresEngine):
             # We weight the localpart most highly, then display name and finally
             # server name
-            template = """
-                (
-                    %s,
-                    setweight(to_tsvector('simple', %s), 'A')
-                    || setweight(to_tsvector('simple', %s), 'D')
-                    || setweight(to_tsvector('simple', COALESCE(%s, '')), 'B')
-                )
-            """
-
             sql = """
                     INSERT INTO user_directory_search(user_id, vector)
-                    VALUES ? ON CONFLICT (user_id) DO UPDATE SET vector=EXCLUDED.vector
+                    VALUES(
+                        ?,
+                        setweight(to_tsvector('simple', ?), 'A')
+                        || setweight(to_tsvector('simple', ?), 'D')
+                        || setweight(to_tsvector('simple', COALESCE(?, '')), 'B')
+                        )
+                    ON CONFLICT (user_id) DO UPDATE SET vector=EXCLUDED.vector
                 """
-            txn.execute_values(
+
+            txn.executemany(
                 sql,
                 [
                     (
@@ -751,9 +749,8 @@ class UserDirectoryBackgroundUpdateStore(StateDeltasStore):
                     )
                     for p in profiles
                 ],
-                template=template,
-                fetch=False,
             )
+
         elif isinstance(self.database_engine, Sqlite3Engine):
             values = []
             for p in profiles:
