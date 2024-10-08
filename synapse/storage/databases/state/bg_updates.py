@@ -77,6 +77,7 @@ class StateGroupBackgroundUpdateStore(SQLBaseStore):
         else:
             # We don't use WITH RECURSIVE on sqlite3 as there are distributions
             # that ship with an sqlite3 version that doesn't support it (e.g. wheezy)
+            # TODO: check this is still true
             next_group: Optional[int] = state_group
             count = 0
 

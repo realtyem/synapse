@@ -97,6 +97,7 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
         # purge attempt, so let's drop the table first.
 
         if isinstance(self.database_engine, PostgresEngine):
+            # TODO: statement timeouts
             # Disable statement timeouts for this transaction; purging rooms can
             # take a while!
             txn.execute("SET LOCAL statement_timeout = 0")
