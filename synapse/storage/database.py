@@ -369,7 +369,7 @@ class LoggingTransaction:
     ) -> Optional[Sequence[Any]]:
         return self.txn.description
 
-    def execute_batch(self, sql: str, args: Iterable[Iterable[Any]]) -> None:
+    def execute_batch(self, sql: str, args: Sequence[SQLQueryParameters]) -> None:
         """Similar to `executemany`, except `txn.rowcount` will not be correct
         afterwards.
 
@@ -396,7 +396,7 @@ class LoggingTransaction:
     def execute_values(
         self,
         sql: str,
-        values: Iterable[Iterable[Any]],
+        values: Sequence[SQLQueryParameters],
         template: Optional[str] = None,
         fetch: bool = True,
     ) -> List[Tuple]:
@@ -425,7 +425,7 @@ class LoggingTransaction:
     def execute(self, sql: str, parameters: SQLQueryParameters = ()) -> None:
         self._do_execute(self.txn.execute, sql, parameters)
 
-    def executemany(self, sql: str, *args: Any) -> None:
+    def executemany(self, sql: str, parameters: Sequence[SQLQueryParameters]) -> None:
         """Repeatedly execute the same piece of SQL with different parameters.
 
         See https://peps.python.org/pep-0249/#executemany. Note in particular that
@@ -440,7 +440,7 @@ class LoggingTransaction:
         # and DBAPI2 it ought to be Sequence[_Parameter], but we pass in
         # Iterable[Iterable[Any]] in execute_batch and execute_values above, which mypy
         # complains about.
-        self._do_execute(self.txn.executemany, sql, *args)
+        self._do_execute(self.txn.executemany, sql, parameters)
 
     def executescript(self, sql: str) -> None:
         if isinstance(self.database_engine, Sqlite3Engine):
@@ -1166,7 +1166,7 @@ class DatabasePool:
         txn: LoggingTransaction,
         table: str,
         keys: Sequence[str],
-        values: Collection[Iterable[Any]],
+        values: Sequence[SQLQueryParameters],
     ) -> None:
         """Executes an INSERT query on the named table.
 
@@ -2352,7 +2352,7 @@ class DatabasePool:
         txn: LoggingTransaction,
         table: str,
         keys: Collection[str],
-        values: Iterable[Iterable[Any]],
+        values: Sequence[SQLQueryParameters],
     ) -> None:
         """Executes a DELETE query on the named table.
 
@@ -2449,7 +2449,7 @@ class DatabasePool:
         """
         Executes a SELECT query on the named table with start and limit,
         of row numbers, which may return zero or number of rows from start to limit,
-        returning the result as a list of dicts.
+        returning the result as a list of tuples.
 
         Use `filters` to search attributes using SQL wildcards and/or `keyvalues` to
         select attributes with exact matches. All constraints are joined together
