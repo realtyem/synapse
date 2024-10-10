@@ -325,7 +325,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                     AND sequence_number <= max_seq
             """
 
-            rows = txn.execute_values(sql, chains.items())
+            rows = txn.execute_values(sql, list(chains.items()))
             results.update(r for (r,) in rows)
         else:
             # For SQLite we just fall back to doing a noddy for loop.
