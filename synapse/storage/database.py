@@ -428,18 +428,26 @@ class LoggingTransaction:
         The `template` is the snippet to merge to every item in argslist to
         compose the query.
         """
-        assert isinstance(self.database_engine, PostgresEngine)
-        from psycopg2.extras import execute_values
+        if isinstance(self.database_engine, Psycopg2Engine):
+            from psycopg2.extras import execute_values
 
-        return self._do_execute(
-            # TODO: is it safe for values to be Iterable[Iterable[Any]] here?
-            # https://www.psycopg.org/docs/extras.html?highlight=execute_batch#psycopg2.extras.execute_values says values should be Sequence[Sequence]
-            lambda the_sql, the_values: execute_values(
-                self.txn, the_sql, the_values, template=template, fetch=fetch
-            ),
-            sql,
-            values,
-        )
+            return self._do_execute(
+                # TODO: is it safe for values to be Iterable[Iterable[Any]] here?
+                # https://www.psycopg.org/docs/extras.html?highlight=execute_batch#psycopg2.extras.execute_values says values should be Sequence[Sequence]
+                lambda the_sql, the_values: execute_values(
+                    self.txn, the_sql, the_values, template=template, fetch=fetch
+                ),
+                sql,
+                values,
+            )
+
+        else:
+            # execute_values requires a single replacement, but we need to expand it
+            # for COPY. This assumes all inner sequences are the same length.
+            template = "(" + ", ".join("?" for _ in next(iter(values))) + ")"
+            sql = sql.replace("?", template)
+
+            return self._do_execute(self.txn.executemany, sql, values)
 
     def execute(self, sql: str, parameters: SQLQueryParameters = ()) -> None:
         self._do_execute(self.txn.execute, sql, parameters)
@@ -512,7 +520,7 @@ class LoggingTransaction:
         finally:
             secs = time.time() - start
             sql_logger.debug("[SQL time] {%s} %f sec", self.name, secs)
-            sql_query_timer.labels(sql.split()[0]).observe(secs)
+            sql_query_timer.labels(one_line_sql.split()[0]).observe(secs)
 
     def close(self) -> None:
         self.txn.close()

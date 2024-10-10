@@ -42,33 +42,49 @@ class SQLBaseStoreTestCase(unittest.TestCase):
         conn_pool = Mock(spec=["runInteraction", "runWithConnection"])
         self.mock_txn = Mock()
         if USE_POSTGRES_FOR_TESTS:
-            # To avoid testing psycopg2 itself, patch execute_batch/execute_values
-            # to assert how it is called.
-            from psycopg2 import extras
+            if USE_POSTGRES_FOR_TESTS == "psycopg":
+                self.mock_conn = Mock(
+                    spec_set=[
+                        "cursor",
+                        "rollback",
+                        "commit",
+                        "closed",
+                        "reconnect",
+                        "autocommit",
+                        "info",
+                    ]
+                )
 
-            self.mock_execute_batch = Mock()
-            self.execute_batch_patcher = patch.object(
-                extras, "execute_batch", new=self.mock_execute_batch
-            )
-            self.execute_batch_patcher.start()
-            self.mock_execute_values = Mock()
-            self.execute_values_patcher = patch.object(
-                extras, "execute_values", new=self.mock_execute_values
-            )
-            self.execute_values_patcher.start()
+                self.mock_conn.autocommit = False
+            else:
+                self.mock_conn = Mock(
+                    spec_set=[
+                        "cursor",
+                        "rollback",
+                        "commit",
+                        "closed",
+                        "reconnect",
+                        "set_session",
+                        "encoding",
+                    ]
+                )
+                self.mock_conn.encoding = "UNICODE"
 
-            self.mock_conn = Mock(
-                spec_set=[
-                    "cursor",
-                    "rollback",
-                    "commit",
-                    "closed",
-                    "reconnect",
-                    "set_session",
-                    "encoding",
-                ]
-            )
-            self.mock_conn.encoding = "UNICODE"
+                # To avoid testing psycopg2 itself, patch execute_batch/execute_values
+                # to assert how it is called. None of these are used for psycopg3
+                from psycopg2 import extras
+
+                self.mock_execute_batch = Mock()
+                self.execute_batch_patcher = patch.object(
+                    extras, "execute_batch", new=self.mock_execute_batch
+                )
+                self.execute_batch_patcher.start()
+                self.mock_execute_values = Mock()
+                self.execute_values_patcher = patch.object(
+                    extras, "execute_values", new=self.mock_execute_values
+                )
+                self.execute_values_patcher.start()
+
         else:
             self.mock_conn = Mock(spec_set=["cursor", "rollback", "commit"])
         self.mock_conn.cursor.return_value = self.mock_txn
@@ -168,7 +184,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             )
         )
 
-        if USE_POSTGRES_FOR_TESTS:
+        if USE_POSTGRES_FOR_TESTS and USE_POSTGRES_FOR_TESTS != "psycopg":
             self.mock_execute_values.assert_called_once_with(
                 self.mock_txn,
                 "INSERT INTO tablename (col1, col2) VALUES ?",
@@ -178,7 +194,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             )
         else:
             self.mock_txn.executemany.assert_called_once_with(
-                "INSERT INTO tablename (col1, col2) VALUES(?, ?)",
+                "INSERT INTO tablename (col1, col2) VALUES (?, ?)",
                 [("val1", "val2"), ("val3", "val4")],
             )
 
