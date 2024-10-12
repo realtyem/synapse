@@ -56,9 +56,10 @@ class PsycopgEngine(
         self, cursor: psycopg.Cursor, statement_timeout: int
     ) -> None:
         """Configure the current cursor's statement timeout."""
-        cursor.execute(
-            psycopg.sql.SQL("SET statement_timeout TO {}").format(statement_timeout)
+        query_str = psycopg.sql.SQL("SET statement_timeout TO {}").format(
+            statement_timeout
         )
+        cursor.execute(query_str.as_string())
 
     def convert_param_style(self, sql: str) -> str:
         # if isinstance(sql, psycopg.sql.Composed):

@@ -504,12 +504,6 @@ class LoggingTransaction:
 
     def _make_sql_one_line(self, sql: str) -> str:
         "Strip newlines out of SQL so that the loggers in the DB are on one line"
-        if isinstance(self.database_engine, PsycopgEngine):
-            import psycopg.sql
-
-            if isinstance(sql, psycopg.sql.Composed):
-                return sql.as_string(None)
-
         return " ".join(line.strip() for line in sql.splitlines() if line.strip())
 
     def _do_execute(
