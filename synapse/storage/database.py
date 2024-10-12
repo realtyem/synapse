@@ -2432,7 +2432,7 @@ class DatabasePool:
         txn: LoggingTransaction,
         table: str,
         keys: Collection[str],
-        values: Iterable[Iterable[Any]],
+        values: Sequence[Iterable[Any]],
     ) -> None:
         """Executes a DELETE query on the named table.
 
