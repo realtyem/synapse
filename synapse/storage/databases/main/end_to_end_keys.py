@@ -1221,7 +1221,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
     def _claim_e2e_fallback_keys_bulk_txn(
         self,
         txn: LoggingTransaction,
-        query_list: Iterable[Tuple[str, str, str, bool]],
+        query_list: Collection[Tuple[str, str, str, bool]],
     ) -> Dict[str, Dict[str, Dict[str, JsonDict]]]:
         """Efficient implementation of claim_e2e_fallback_keys for Postgres.
 
@@ -1354,7 +1354,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
     def _claim_e2e_one_time_keys_bulk(
         self,
         txn: LoggingTransaction,
-        query_list: Iterable[Tuple[str, str, str, int]],
+        query_list: Collection[Tuple[str, str, str, int]],
     ) -> List[Tuple[str, str, str, str, str]]:
         """Bulk claim OTKs, for DBs that support DELETE FROM... RETURNING.
 
