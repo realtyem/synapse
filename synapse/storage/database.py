@@ -408,7 +408,7 @@ class LoggingTransaction:
         values: Collection[Iterable[Any]],
         template: Optional[str] = None,
         fetch: bool = True,
-    ) -> List[Tuple]:
+    ) -> Iterable[Tuple]:
         """Corresponds to psycopg2.extras.execute_values. Only available when
         using postgres.
 
