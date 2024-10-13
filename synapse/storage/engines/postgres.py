@@ -29,6 +29,7 @@ from synapse.storage.engines._base import (
     ConnectionType,
     CursorType,
     IncorrectDatabaseSetup,
+    IsolationLevel,
     IsolationLevelType,
 )
 from synapse.storage.types import Cursor, DBAPI2Module
@@ -43,7 +44,7 @@ class PostgresEngine(
     BaseDatabaseEngine[ConnectionType, CursorType, IsolationLevelType],
     metaclass=abc.ABCMeta,
 ):
-    isolation_level_map: Mapping[int, IsolationLevelType]
+    isolation_level_map: Mapping[IsolationLevel, IsolationLevelType]
     default_isolation_level: IsolationLevelType
 
     def __init__(self, module: DBAPI2Module, database_config: Mapping[str, Any]):
