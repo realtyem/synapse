@@ -172,7 +172,7 @@ class PostgresEngine(
 
     def on_new_connection(self, db_conn: "LoggingDatabaseConnection") -> None:
         # mypy doesn't realize that ConnectionType matches the Connection protocol.
-        self.attempt_to_set_isolation_level(db_conn.conn, self.default_isolation_level)  # type: ignore[arg-type]
+        self.attempt_to_set_isolation_level(db_conn.conn)  # type: ignore[arg-type]
 
         # Set the bytea output to escape, vs the default of hex
         cursor = db_conn.cursor()
