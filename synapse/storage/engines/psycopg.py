@@ -88,7 +88,7 @@ class PsycopgEngine(
         conn.autocommit = autocommit
 
     def attempt_to_set_isolation_level(
-        self, conn: psycopg.Connection, isolation_level: Optional[int]
+        self, conn: psycopg.Connection, isolation_level: Optional[IsolationLevel] = None
     ) -> None:
         if isolation_level is None:
             pg_isolation_level = self.default_isolation_level

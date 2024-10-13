@@ -72,6 +72,7 @@ from synapse.storage.engines import (
     PsycopgEngine,
     Sqlite3Engine,
 )
+from synapse.storage.engines._base import IsolationLevel
 from synapse.storage.types import Connection, Cursor, SQLQueryParameters
 from synapse.types import StrCollection
 from synapse.util.async_helpers import delay_cancellation
@@ -928,7 +929,7 @@ class DatabasePool:
         func: Callable[..., R],
         *args: Any,
         db_autocommit: bool = False,
-        isolation_level: Optional[int] = None,
+        isolation_level: Optional[IsolationLevel] = None,
         **kwargs: Any,
     ) -> R:
         """Starts a transaction on the database and runs a given function
@@ -1010,7 +1011,7 @@ class DatabasePool:
         func: Callable[Concatenate[LoggingDatabaseConnection, P], R],
         *args: Any,
         db_autocommit: bool = False,
-        isolation_level: Optional[int] = None,
+        isolation_level: Optional[IsolationLevel] = None,
         **kwargs: Any,
     ) -> R:
         """Wraps the .runWithConnection() method on the underlying db_pool.
