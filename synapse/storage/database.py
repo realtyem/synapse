@@ -453,7 +453,7 @@ class LoggingTransaction:
             def f(
                 the_sql: str, the_args: Sequence[Sequence[Any]]
             ) -> Iterable[Tuple[Any, ...]]:
-                with self.txn.copy(the_sql, the_args) as copy:
+                with self.txn.copy(the_sql, the_args) as copy:  # type: ignore[attr-defined]
                     yield from copy.rows()
 
             # Flatten the values.
@@ -468,7 +468,7 @@ class LoggingTransaction:
         def f(
             the_sql: str, the_args: Iterable[Any], the_values: Iterable[Iterable[Any]]
         ) -> None:
-            with self.txn.copy(the_sql, the_args) as copy:
+            with self.txn.copy(the_sql, the_args) as copy:  # type: ignore[attr-defined]
                 for record in the_values:
                     copy.write_row(record)
 
