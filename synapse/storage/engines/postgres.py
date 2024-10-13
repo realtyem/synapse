@@ -187,7 +187,12 @@ class PostgresEngine(
 
         # Abort really long-running statements and turn them into errors.
         if self.statement_timeout is not None:
-            self.set_statement_timeout(cursor.txn, self.statement_timeout)
+            # Because the PostgresEngine is considered an ABCMeta, a superclass and a
+            # subclass, cursor's type is messy. We know it should be a CursorType,
+            # but for now that doesn't pass cleanly through LoggingDatabaseConnection
+            # and LoggingTransaction. Fortunately, it's merely running an execute()
+            # and nothing more exotic.
+            self.set_statement_timeout(cursor.txn, self.statement_timeout)  # type: ignore[arg-type]
 
         cursor.close()
         db_conn.commit()
