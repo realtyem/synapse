@@ -247,6 +247,7 @@ if [[ -n "$WORKERS" ]]; then
 
   # Workers can only use Postgres as a database.
   export PASS_SYNAPSE_COMPLEMENT_DATABASE=postgres
+  export PASS_POSTGRES_DRIVER=${POSTGRES_DRIVER:-psycopg2}
 
   # And provide some more configuration to complement.
 
@@ -258,6 +259,7 @@ else
   export PASS_SYNAPSE_COMPLEMENT_USE_WORKERS=
   if [[ -n "$POSTGRES" ]]; then
     export PASS_SYNAPSE_COMPLEMENT_DATABASE=postgres
+    export PASS_POSTGRES_DRIVER=${POSTGRES_DRIVER:-psycopg2}
   else
     export PASS_SYNAPSE_COMPLEMENT_DATABASE=sqlite
   fi

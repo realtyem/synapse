@@ -656,6 +656,12 @@ jobs:
           - arrangement: workers
             database: Postgres
 
+          - arrangement: monolith
+            database: Psycopg
+
+          - arrangement: workers
+            database: Psycopg
+
     steps:
       - name: Run actions/checkout@v4 for synapse
         uses: actions/checkout@v4
@@ -680,7 +686,8 @@ jobs:
           COMPLEMENT_DIR=`pwd`/complement synapse/scripts-dev/complement.sh -p 1 -json 2>&1 | synapse/.ci/scripts/gotestfmt
         shell: bash
         env:
-          POSTGRES: ${{ (matrix.database == 'Postgres') && 1 || '' }}
+          POSTGRES: ${{ matrix.database == 'Psycopg' && 1 || matrix.database == 'Postgres' && 1 || '' }}
+          POSTGRES_DRIVER: ${{ matrix.database == 'Psycopg' && 'psycopg' || matrix.database == 'Postgres' && 'psycopg2' || '' }}
           WORKERS: ${{ (matrix.arrangement == 'workers') && 1 || '' }}
         name: Run Complement Tests
 
