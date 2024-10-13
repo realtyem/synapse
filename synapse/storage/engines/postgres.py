@@ -21,7 +21,7 @@
 
 import abc
 import logging
-from typing import TYPE_CHECKING, Any, Generic, Mapping, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Tuple, cast
 
 from synapse.storage.engines._base import (
     AUTO_INCREMENT_PRIMARY_KEYPLACEHOLDER,
@@ -36,12 +36,10 @@ from synapse.storage.types import Cursor, DBAPI2Module
 if TYPE_CHECKING:
     from synapse.storage.database import LoggingDatabaseConnection
 
-
 logger = logging.getLogger(__name__)
 
 
 class PostgresEngine(
-    Generic[ConnectionType, CursorType, IsolationLevelType],
     BaseDatabaseEngine[ConnectionType, CursorType, IsolationLevelType],
     metaclass=abc.ABCMeta,
 ):
