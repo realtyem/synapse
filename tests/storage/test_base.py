@@ -179,7 +179,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
 
         if USE_POSTGRES_FOR_TESTS == "psycopg":
             self.mock_txn.copy.assert_called_once_with(
-                "COPY tablename (col1, col2) FROM STDIN", ()
+                "COPY tablename (col1, col2) FROM STDIN"
             )
             self.mock_copy.write_row.assert_has_calls(
                 [call(("val1", "val2")), call(("val3", "val4"))]

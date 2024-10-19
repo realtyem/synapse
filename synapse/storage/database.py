@@ -460,20 +460,16 @@ class LoggingTransaction:
             # Flatten the values.
             return self._do_execute(f, sql, list(itertools.chain.from_iterable(values)))
 
-    def copy_write(
-        self, sql: str, args: Iterable[Any], values: Iterable[Iterable[Any]]
-    ) -> None:
+    def copy_write(self, sql: str, values: Iterable[Iterable[Any]]) -> None:
         """Corresponds to a PostgreSQL COPY (...) FROM STDIN call."""
         assert isinstance(self.database_engine, PsycopgEngine)
 
-        def f(
-            the_sql: str, the_args: Iterable[Any], the_values: Iterable[Iterable[Any]]
-        ) -> None:
-            with self.txn.copy(the_sql, the_args) as copy:  # type: ignore[attr-defined]
+        def f(the_sql: str, the_values: Iterable[Iterable[Any]]) -> None:
+            with self.txn.copy(the_sql) as copy:  # type: ignore[attr-defined]
                 for record in the_values:
                     copy.write_row(record)
 
-        self._do_execute(f, sql, args, values)
+        self._do_execute(f, sql, values)
 
     def execute(self, sql: str, parameters: SQLQueryParameters = ()) -> None:
         self._do_execute(self.txn.execute, sql, parameters)
@@ -1252,7 +1248,7 @@ class DatabasePool:
                 table,
                 ", ".join(k for k in keys),
             )
-            txn.copy_write(sql, (), values)
+            txn.copy_write(sql, values)
 
         else:
             sql = "INSERT INTO %s (%s) VALUES(%s)" % (
