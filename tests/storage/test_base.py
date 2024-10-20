@@ -196,6 +196,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             self.mock_txn.executemany.assert_called_once_with(
                 "INSERT INTO tablename (col1, col2) VALUES(?, ?)",
                 [("val1", "val2"), ("val3", "val4")],
+                returning=False,
             )
 
     @defer.inlineCallbacks
@@ -398,6 +399,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             self.mock_txn.executemany.assert_called_once_with(
                 "UPDATE tablename SET col3 = ? WHERE col1 = ? AND col2 = ?",
                 [("val3", "val1", "val2")],
+                returning=False,
             )
 
         # key_values and value_values must be the same length.
@@ -613,6 +615,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             self.mock_txn.executemany.assert_called_once_with(
                 "INSERT INTO tablename (keycol1, keycol2, valuecol3) VALUES (?, ?, ?) ON CONFLICT (keycol1, keycol2) DO UPDATE SET valuecol3=EXCLUDED.valuecol3",
                 [("keyval1", "keyval2", "val5"), ("keyval3", "keyval4", "val6")],
+                returning=False,
             )
 
     @defer.inlineCallbacks
@@ -643,6 +646,7 @@ class SQLBaseStoreTestCase(unittest.TestCase):
             self.mock_txn.executemany.assert_called_once_with(
                 "INSERT INTO tablename (columnname) VALUES (?) ON CONFLICT (columnname) DO NOTHING",
                 [("oldvalue",)],
+                returning=False,
             )
 
     @defer.inlineCallbacks

@@ -55,7 +55,12 @@ from synapse.storage.database import (
 )
 from synapse.storage.databases.main.events_worker import EventsWorkerStore
 from synapse.storage.databases.main.signatures import SignatureWorkerStore
-from synapse.storage.engines import PostgresEngine, Sqlite3Engine
+from synapse.storage.engines import (
+    PostgresEngine,
+    Psycopg2Engine,
+    PsycopgEngine,
+    Sqlite3Engine,
+)
 from synapse.types import JsonDict, StrCollection
 from synapse.util import json_encoder
 from synapse.util.caches.descriptors import cached
@@ -628,7 +633,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
             # If there are no gaps to fetch, we're done!
             return result
 
-        if isinstance(self.database_engine, PostgresEngine):
+        if isinstance(self.database_engine, Psycopg2Engine):
             # We can use `execute_values` to efficiently fetch the gaps when
             # using postgres.
             sql = """
@@ -646,6 +651,27 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
             rows = txn.execute_values(sql, args)
             result.update(r for (r,) in rows)
+        elif isinstance(self.database_engine, PsycopgEngine):
+            sql = """
+                SELECT event_id
+                FROM event_auth_chains AS c, (VALUES (?, ?, ?)) AS l(chain_id, min_seq, max_seq)
+                WHERE
+                    c.chain_id = l.chain_id
+                    AND min_seq < sequence_number AND sequence_number <= max_seq
+            """
+
+            args = [
+                (chain_id, min_no, max_no)
+                for chain_id, (min_no, max_no) in chain_to_gap.items()
+            ]
+
+            txn.executemany(sql, args, returning=True)
+            # rows = txn.fetchall()
+            while True:
+                result.update(r[0] for r in txn.fetchall())
+                if not txn.nextset():
+                    break
+
         else:
             # For SQLite we just fall back to doing a noddy for loop.
             sql = """

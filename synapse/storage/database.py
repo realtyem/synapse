@@ -477,7 +477,7 @@ class LoggingTransaction:
     def execute(self, sql: str, parameters: SQLQueryParameters = ()) -> None:
         self._do_execute(self.txn.execute, sql, parameters)
 
-    def executemany(self, sql: str, *args: Any) -> None:
+    def executemany(self, sql: str, *args: Any, returning: bool = False) -> None:
         """Repeatedly execute the same piece of SQL with different parameters.
 
         See https://peps.python.org/pep-0249/#executemany. Note in particular that
@@ -487,12 +487,21 @@ class LoggingTransaction:
 
         so you can't use this for e.g. a SELECT, an UPDATE ... RETURNING, or a
         DELETE FROM... RETURNING.
+
+        The new psycopg module allows for the `returning` kwarg to retrieve data,
+        however using it will make the rowcount attribute not be what we are used to.
+        False will make rowcount be the total number of affected rows, but True will be
+        the affected row count *of the first query only*. Subsequent counts(and results)
+        will not be visible until `nextset()` is called on the cursor.
         """
         # TODO: we should add a type for *args here. Looking at Cursor.executemany
         # and DBAPI2 it ought to be Sequence[_Parameter], but we pass in
         # Iterable[Iterable[Any]] in execute_batch and execute_values above, which mypy
         # complains about.
-        self._do_execute(self.txn.executemany, sql, *args)
+        # mypy does not like that the `returning` kwarg is not defined by the DBAPI20
+        # constrained(bound) `Cursor` class in types.py. But we need it to pass on for
+        # retrieving data from the cursor
+        self._do_execute(self.txn.executemany, sql, *args, returning=returning)  # type: ignore[call-arg]
 
     def executescript(self, sql: str) -> None:
         if isinstance(self.database_engine, Sqlite3Engine):
