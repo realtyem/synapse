@@ -367,6 +367,9 @@ class LoggingTransaction:
     def __iter__(self) -> Iterator[Tuple]:
         return self.txn.__iter__()
 
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self.txn, item)
+
     @property
     def rowcount(self) -> int:
         return self.txn.rowcount
