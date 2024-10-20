@@ -53,6 +53,7 @@ class BaseDatabaseEngine(
 ):
     def __init__(self, module: DBAPI2Module, config: Mapping[str, Any]):
         self.module = module
+        self.config = config
 
     @property
     @abc.abstractmethod

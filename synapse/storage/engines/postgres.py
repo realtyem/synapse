@@ -62,8 +62,6 @@ class PostgresEngine(
         )
         self._version: Optional[int] = None  # unknown as yet
 
-        self.config = database_config
-
     @abc.abstractmethod
     def get_server_version(self, db_conn: ConnectionType) -> int:
         """Gets called when setting up a brand new database. This allows us to

@@ -46,7 +46,6 @@ class Psycopg2Engine(
         self.default_isolation_level = (
             psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ
         )
-        self.config = database_config
 
     def get_server_version(self, db_conn: psycopg2.extensions.connection) -> int:
         return db_conn.server_version
