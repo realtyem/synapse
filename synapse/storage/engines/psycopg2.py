@@ -54,7 +54,7 @@ class Psycopg2Engine(
     def set_statement_timeout(
         self, cursor: psycopg2.extensions.cursor, statement_timeout: int
     ) -> None:
-        cursor.execute("SET statement_timeout TO ?", (statement_timeout,))
+        cursor.execute("SET statement_timeout TO %s", (statement_timeout,))
 
     def convert_param_style(self, sql: str) -> str:
         return sql.replace("?", "%s")
@@ -86,14 +86,3 @@ class Psycopg2Engine(
             pg_isolation_level = self.isolation_level_map[isolation_level]
         return conn.set_isolation_level(pg_isolation_level)
 
-    @staticmethod
-    def executescript(cursor: psycopg2.extensions.cursor, script: str) -> None:
-        """Execute a chunk of SQL containing multiple semicolon-delimited statements.
-
-        Psycopg2 seems happy to do this in DBAPI2's `execute()` function.
-
-        For consistency with SQLite, any ongoing transaction is committed before
-        executing the script in its own transaction. The script transaction is
-        left open and it is the responsibility of the caller to commit it.
-        """
-        cursor.execute(f"COMMIT; BEGIN TRANSACTION; {script}")
