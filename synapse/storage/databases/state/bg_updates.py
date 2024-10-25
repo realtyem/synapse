@@ -404,7 +404,7 @@ class StateBackgroundUpdateStore(StateGroupBackgroundUpdateStore):
                     (state_group, room_id),
                 )
                 # There will be a result due to the coalesce.
-                (prev_group,) = txn.fetchone()  # type: ignore
+                (prev_group,) = txn.fetchone()
                 new_last_state_group = state_group
 
                 if prev_group:

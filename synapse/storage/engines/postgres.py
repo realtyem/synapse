@@ -172,7 +172,7 @@ class PostgresEngine(
         self, db_conn: "LoggingDatabaseConnection[ConnectionType, CursorType]"
     ) -> None:
         # mypy doesn't realize that ConnectionType matches the Connection protocol.
-        self.attempt_to_set_isolation_level(db_conn.conn)  # type: ignore[arg-type]
+        self.attempt_to_set_isolation_level(db_conn.conn)
 
         # Set the bytea output to escape, vs the default of hex
         cursor = db_conn.cursor()
@@ -191,8 +191,7 @@ class PostgresEngine(
             # but for now that doesn't pass cleanly through LoggingDatabaseConnection
             # and LoggingTransaction. Fortunately, it's merely running an execute()
             # and nothing more exotic.
-            self.set_statement_timeout(cursor.txn, self.statement_timeout)  # type: ignore[arg-type]
-
+            self.set_statement_timeout(cursor.txn, self.statement_timeout)
         cursor.close()
         db_conn.commit()
 

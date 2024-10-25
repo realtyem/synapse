@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class PsycopgEngine(
     # mypy doesn't seem to like that the psycopg Connection and Cursor are Generics.
-    PostgresEngine[  # type: ignore[type-var]
+    PostgresEngine[
         psycopg.Connection[Tuple], psycopg.Cursor[Tuple], psycopg.IsolationLevel
     ]
 ):
@@ -59,7 +59,7 @@ class PsycopgEngine(
         query_str = psycopg.sql.SQL("SET statement_timeout TO {}").format(
             statement_timeout
         )
-        cursor.execute(query_str.as_string())
+        cursor.execute(query_str)
 
     def convert_param_style(self, sql: str) -> str:
         # if isinstance(sql, psycopg.sql.Composed):
