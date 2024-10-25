@@ -217,15 +217,6 @@ class LoggingDatabaseConnection(Generic[ConnectionType, CursorType]):
             exception_callbacks=exception_callbacks,
         )
 
-    def close(self) -> None:
-        self.conn.close()
-
-    def commit(self) -> None:
-        self.conn.commit()
-
-    def rollback(self) -> None:
-        self.conn.rollback()
-
     def __enter__(self) -> "LoggingDatabaseConnection":
         self.conn.__enter__()
         return self
@@ -361,30 +352,11 @@ class LoggingTransaction(Generic[CursorType]):
         assert self.exception_callbacks is not None
         self.exception_callbacks.append((callback, args, kwargs))
 
-    def fetchone(self) -> Optional[Tuple]:
-        return self.txn.fetchone()
-
-    def fetchmany(self, size: Optional[int] = None) -> List[Tuple]:
-        return self.txn.fetchmany(size=size)
-
-    def fetchall(self) -> List[Tuple]:
-        return self.txn.fetchall()
-
     def __iter__(self) -> Iterator[Tuple]:
         return self.txn.__iter__()
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self.txn, item)
-
-    @property
-    def rowcount(self) -> int:
-        return self.txn.rowcount
-
-    @property
-    def description(
-        self,
-    ) -> Optional[Sequence[Any]]:
-        return self.txn.description
 
     def execute_batch(self, sql: str, args: Iterable[Iterable[Any]]) -> None:
         """Similar to `executemany`, except `txn.rowcount` will not be correct
