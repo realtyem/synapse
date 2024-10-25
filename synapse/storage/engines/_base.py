@@ -92,7 +92,16 @@ class BaseDatabaseEngine(
     # the Sqlite engine expects to use LoggingDatabaseConnection.cursor
     # instead of sqlite3.Connection.cursor: only the former takes a txn_name.
     @abc.abstractmethod
-    def on_new_connection(self, db_conn: "LoggingDatabaseConnection") -> None: ...
+    def on_new_connection(
+        self, db_conn: "LoggingDatabaseConnection[ConnectionType, CursorType]"
+    ) -> None: ...
+
+    def prep_new_connection(
+        self, conn: ConnectionType, default_txn_name: str
+    ) -> "LoggingDatabaseConnection[ConnectionType, CursorType]":
+        return LoggingDatabaseConnection[ConnectionType, CursorType](
+            conn, self, default_txn_name
+        )
 
     @abc.abstractmethod
     def is_deadlock(self, error: Exception) -> bool: ...

@@ -94,7 +94,9 @@ class Sqlite3Engine(BaseDatabaseEngine[sqlite3.Connection, sqlite3.Cursor, int])
     def convert_param_style(self, sql: str) -> str:
         return sql
 
-    def on_new_connection(self, db_conn: "LoggingDatabaseConnection") -> None:
+    def on_new_connection(
+        self, db_conn: "LoggingDatabaseConnection[sqlite3.Connection, sqlite3.Cursor]"
+    ) -> None:
         # We need to import here to avoid an import loop.
         from synapse.storage.prepare_database import prepare_database
 

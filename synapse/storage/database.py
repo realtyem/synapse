@@ -33,6 +33,7 @@ from typing import (
     Callable,
     Collection,
     Dict,
+    Generic,
     Iterable,
     Iterator,
     List,
@@ -46,7 +47,6 @@ from typing import (
     overload,
 )
 
-import attr
 from prometheus_client import Counter, Histogram
 from typing_extensions import Concatenate, Literal, ParamSpec
 
@@ -71,8 +71,8 @@ from synapse.storage.engines import (
     PsycopgEngine,
     Sqlite3Engine,
 )
-from synapse.storage.engines._base import IsolationLevel
-from synapse.storage.types import Connection, Cursor, SQLQueryParameters
+from synapse.storage.engines._base import ConnectionType, CursorType, IsolationLevel
+from synapse.storage.types import Connection, SQLQueryParameters
 from synapse.types import StrCollection
 from synapse.util.async_helpers import delay_cancellation
 from synapse.util.iterutils import batch_iter
@@ -140,9 +140,8 @@ def make_pool(
         # Ensure we have a logging context so we can correctly track queries,
         # etc.
         with LoggingContext("db.on_new_connection"):
-            engine.on_new_connection(
-                LoggingDatabaseConnection(conn, engine, "on_new_connection")
-            )
+            db_conn = engine.prep_new_connection(conn, "on_new_connection")
+            engine.on_new_connection(db_conn)
 
     connection_pool = adbapi.ConnectionPool(
         db_config.config["name"],
@@ -173,23 +172,30 @@ def make_conn(
         if not k.startswith("cp_")
     }
     native_db_conn = engine.module.connect(**db_params)
-    db_conn = LoggingDatabaseConnection(native_db_conn, engine, default_txn_name)
+    db_conn = engine.prep_new_connection(native_db_conn, default_txn_name)
 
     engine.on_new_connection(db_conn)
     return db_conn
 
 
-@attr.s(slots=True, auto_attribs=True)
-class LoggingDatabaseConnection:
+# @attr.s(slots=True, auto_attribs=True)
+class LoggingDatabaseConnection(Generic[ConnectionType, CursorType]):
     """A wrapper around a database connection that returns `LoggingTransaction`
     as its cursor class.
 
     This is mainly used on startup to ensure that queries get logged correctly
     """
 
-    conn: Connection
+    conn: ConnectionType
     engine: BaseDatabaseEngine
     default_txn_name: str
+
+    def __init__(
+        self, conn: ConnectionType, engine: BaseDatabaseEngine, default_txn_name: str
+    ) -> None:
+        self.conn = conn
+        self.engine = engine
+        self.default_txn_name = default_txn_name
 
     def cursor(
         self,
@@ -202,7 +208,7 @@ class LoggingDatabaseConnection:
         if not txn_name:
             txn_name = self.default_txn_name
 
-        return LoggingTransaction(
+        return LoggingTransaction[CursorType](
             self.conn.cursor(),
             name=txn_name,
             database_engine=self.engine,
@@ -247,7 +253,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-class LoggingTransaction:
+class LoggingTransaction(Generic[CursorType]):
     """An object that almost-transparently proxies for the 'txn' object
     passed to the constructor. Adds logging and metrics to the .execute()
     method.
@@ -281,7 +287,7 @@ class LoggingTransaction:
 
     def __init__(
         self,
-        txn: Cursor,
+        txn: CursorType,
         name: str,
         database_engine: BaseDatabaseEngine,
         after_callbacks: Optional[List[_CallbackListEntry]] = None,

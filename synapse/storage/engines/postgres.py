@@ -168,7 +168,9 @@ class PostgresEngine(
     def convert_param_style(self, sql: str) -> str:
         return sql.replace("?", "%s")
 
-    def on_new_connection(self, db_conn: "LoggingDatabaseConnection") -> None:
+    def on_new_connection(
+        self, db_conn: "LoggingDatabaseConnection[ConnectionType, CursorType]"
+    ) -> None:
         # mypy doesn't realize that ConnectionType matches the Connection protocol.
         self.attempt_to_set_isolation_level(db_conn.conn)  # type: ignore[arg-type]
 
