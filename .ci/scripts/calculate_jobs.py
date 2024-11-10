@@ -134,6 +134,7 @@ sytest_tests = [
         "sytest-tag": "focal",
         "postgres": "multi-postgres",
         "workers": "workers",
+        "python_postgres_module": "psycopg",
         "reactor": "asyncio",
     },
 ]
@@ -151,12 +152,16 @@ if not IS_PR:
                 "reactor": "asyncio",
             },
             {
+                "sytest-tag": "focal",
+                "postgres": "postgres",
+                "python_postgres_module": "psycopg",
+            },
+            {
                 "sytest-tag": "testing",
                 "postgres": "postgres",
             },
         ]
     )
-
 
 print("::group::Calculated sytest jobs")
 print(json.dumps(sytest_tests, indent=4))
