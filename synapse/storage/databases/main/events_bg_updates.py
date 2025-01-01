@@ -1067,7 +1067,7 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
             tuple_args.append(batch_size)
 
         txn.execute(sql, tuple_args)
-        rows = txn.fetchall()
+        rows = cast(List[Tuple[str, str, str, int, int, str]], txn.fetchall())
 
         # Put the results in the necessary format for
         # `_add_chain_cover_index`
@@ -1075,9 +1075,9 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
         event_to_types = {row[0]: (row[1], row[2]) for row in rows}
 
         # Calculate the new last position we've processed up to.
-        new_last_depth: int = rows[-1][3] if rows else last_depth
-        new_last_stream: int = rows[-1][4] if rows else last_stream
-        new_last_room_id: str = rows[-1][5] if rows else ""
+        new_last_depth = rows[-1][3] if rows else last_depth
+        new_last_stream = rows[-1][4] if rows else last_stream
+        new_last_room_id = rows[-1][5] if rows else ""
 
         # Map from room_id to last depth/stream_ordering processed for the room,
         # excluding the last room (which we're likely still processing). We also
@@ -1113,7 +1113,7 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
 
         # Calculate and persist the chain cover index for this set of events.
         #
-        # Annoyingly we need to gut wrench into the persit event store so that
+        # Annoyingly we need to gut wrench into the persist event store so that
         # we can reuse the function to calculate the chain cover for rooms.
         PersistEventsStore._add_chain_cover_index(
             txn,
@@ -1122,6 +1122,7 @@ class EventsBackgroundUpdatesStore(StreamWorkerStore, StateDeltasStore, SQLBaseS
             event_to_room_id,
             event_to_types,
             cast(Dict[str, StrCollection], event_to_auth_chain),
+            # self.store._chain_links_cache,
         )
 
         return _CalculateChainCover(
