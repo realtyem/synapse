@@ -143,6 +143,14 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                 self._delete_old_forward_extrem_cache, 60 * 60 * 1000
             )
 
+        # Cache of origin_chain_id to Set of Tuples of related origin sequences and
+        # their subsequent targets. Mapped as:
+        # origin_chain_id -> Set[Tuple[origin_sequence_number, target_chain_id, target_sequence_number], ...]
+        # TODO: Might move this to EventsWorker store so it can be used by the
+        #  background task worker as well
+        self._chain_links_cache: LruCache[int, List[Tuple[int, int, int]]] = LruCache(
+            500000, "chain_link_cache"
+        )
         # Cache of event ID to list of auth event IDs and their depths.
         self._event_auth_cache: LruCache[str, List[Tuple[str, int]]] = LruCache(
             500000, "_event_auth_cache", size_callback=len
@@ -289,7 +297,9 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         # A map from chain ID to max sequence number *reachable* from any event ID.
         chains: Dict[int, int] = {}
-        for links in self._get_chain_links(txn, set(event_chains.keys())):
+        for links in self._get_chain_links(
+            txn, set(event_chains.keys()), self._chain_links_cache
+        ):
             for chain_id in links:
                 if chain_id not in event_chains:
                     continue
@@ -341,7 +351,10 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
     @classmethod
     def _get_chain_links(
-        cls, txn: LoggingTransaction, chains_to_fetch: Set[int]
+        cls,
+        txn: LoggingTransaction,
+        chains_to_fetch: Set[int],
+        cache: Optional[LruCache[int, List[Tuple[int, int, int]]]] = None,
     ) -> Generator[Dict[int, List[Tuple[int, int, int]]], None, None]:
         """Fetch all auth chain links from the given set of chains, and all
         links from those chains, recursively.
@@ -352,6 +365,39 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         Returns a generator that produces dicts from origin chain ID to 3-tuple
         of origin sequence number, target chain ID and target sequence number.
         """
+
+        processed_chains: Set[int] = set()
+        cache_entries_to_process: Dict[int, List[Tuple[int, int, int]]] = {}
+        cached_links: Dict[int, List[Tuple[int, int, int]]] = {}
+
+        if cache is not None:
+            # Cache retrieval is done in two stages. First grab all the initial entries
+            for entry in chains_to_fetch:
+                cached_entry = cache.get(entry)
+                if cached_entry is not None:
+                    processed_chains.add(entry)
+                    cache_entries_to_process[entry] = cached_entry
+
+            # Then recursively add new entries by looking up the associated targets. All
+            # of them can go out on the first yield
+            while cache_entries_to_process:
+                origin_chain_id, list_of_chains = cache_entries_to_process.popitem()
+                link_root = cached_links.setdefault(origin_chain_id, [])
+                for chain_sequence in list_of_chains:
+                    link_root.append(chain_sequence)
+                    (
+                        origin_sequence_number,
+                        target_chain_id,
+                        target_sequence_number,
+                    ) = chain_sequence
+                    if target_chain_id not in processed_chains:
+                        t_cache_entry = cache.get(target_chain_id)
+                        if t_cache_entry is not None:
+                            processed_chains.add(target_chain_id)
+                            cache_entries_to_process[target_chain_id] = t_cache_entry
+
+            chains_to_fetch.difference_update(processed_chains)
+            yield cached_links
 
         # This query is structured to first get all chain IDs reachable, and
         # then pull out all links from those chains. This does pull out more
@@ -396,6 +442,15 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                 links.setdefault(origin_chain_id, []).append(
                     (origin_sequence_number, target_chain_id, target_sequence_number)
                 )
+
+            if cache is not None:
+                for origin_chain_id, list_of_chains in links.items():
+                    if (
+                        origin_chain_id not in processed_chains
+                        and origin_chain_id not in cache
+                    ):
+                        processed_chains.add(origin_chain_id)
+                        cache.set(origin_chain_id, list_of_chains)
 
             chains_to_fetch.difference_update(links)
 
@@ -589,7 +644,9 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # are reachable from any event.
 
         # (We need to take a copy of `seen_chains` as the function mutates it)
-        for links in self._get_chain_links(txn, set(seen_chains)):
+        for links in self._get_chain_links(
+            txn, set(seen_chains), self._chain_links_cache
+        ):
             for chains in set_to_chain:
                 for chain_id in links:
                     if chain_id not in chains:
