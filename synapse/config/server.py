@@ -33,6 +33,7 @@ from netaddr import AddrFormatError, IPNetwork, IPSet
 
 from twisted.conch.ssh.keys import Key
 
+from http.matrixfederationclient import MAXINT
 from synapse.api.room_versions import KNOWN_ROOM_VERSIONS
 from synapse.types import JsonDict, StrSequence
 from synapse.util.module_loader import load_module
@@ -793,6 +794,20 @@ class ServerConfig(Config):
                 raise ConfigError("max_event_delay_duration must be a positive value")
         else:
             self.max_event_delay_ms = None
+
+        get_chain_links_batch_size = config.get("get_chain_link_batch_size")
+        if get_chain_links_batch_size is None:
+            self.get_chain_links_batch_size = 1000
+        else:
+            try:
+                batch_size = int(get_chain_links_batch_size)
+            except TypeError:
+                self.get_chain_links_batch_size = 1000
+            else:
+                if batch_size < 1000 or batch_size > MAXINT:
+                    self.get_chain_links_batch_size = 1000
+                else:
+                    self.get_chain_links_batch_size = batch_size
 
     def has_tls_listener(self) -> bool:
         return any(listener.is_tls() for listener in self.listeners)

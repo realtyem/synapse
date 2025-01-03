@@ -298,7 +298,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # A map from chain ID to max sequence number *reachable* from any event ID.
         chains: Dict[int, int] = {}
         for links in self._get_chain_links(
-            txn, set(event_chains.keys()), self._chain_links_cache
+            txn, set(event_chains.keys()), self._chain_links_cache, self.hs.config.server.get_chain_links_batch_size
         ):
             for chain_id in links:
                 if chain_id not in event_chains:
@@ -355,6 +355,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         txn: LoggingTransaction,
         chains_to_fetch: Set[int],
         cache: Optional[LruCache[int, List[Tuple[int, int, int]]]] = None,
+        batch_size: int = 1000,
     ) -> Generator[Dict[int, List[Tuple[int, int, int]]], None, None]:
         """Fetch all auth chain links from the given set of chains, and all
         links from those chains, recursively.
@@ -424,7 +425,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         """
 
         while chains_to_fetch:
-            batch2 = tuple(itertools.islice(chains_to_fetch, 1000))
+            batch2 = tuple(itertools.islice(chains_to_fetch, batch_size))
             chains_to_fetch.difference_update(batch2)
             clause, args = make_in_list_sql_clause(
                 txn.database_engine, "origin_chain_id", batch2
@@ -645,7 +646,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         # (We need to take a copy of `seen_chains` as the function mutates it)
         for links in self._get_chain_links(
-            txn, set(seen_chains), self._chain_links_cache
+            txn, set(seen_chains), self._chain_links_cache, self.hs.config.server.get_chain_links_batch_size
         ):
             for chains in set_to_chain:
                 for chain_id in links:
