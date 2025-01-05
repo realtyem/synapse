@@ -81,6 +81,7 @@ from synapse.types import (
 )
 from synapse.types.handlers import SLIDING_SYNC_DEFAULT_BUMP_EVENT_TYPES
 from synapse.types.state import StateFilter
+from synapse.util.caches.lrucache import LruCache
 from synapse.util.events import get_plain_text_topic_from_event_content
 from synapse.util.iterutils import batch_iter, sorted_topologically
 from synapse.util.json import json_encoder
@@ -932,6 +933,8 @@ class PersistEventsStore:
             event_to_room_id,
             event_to_types,
             event_to_auth_chain,
+            self.store._chain_links_cache,
+            self.hs.config.server.get_chain_links_batch_size,
         )
 
     async def _get_events_which_are_prevs(self, event_ids: Iterable[str]) -> list[str]:
@@ -1226,6 +1229,20 @@ class PersistEventsStore:
     ) -> None:
         if new_event_links:
             self._persist_chain_cover_index(txn, self.db_pool, new_event_links)
+            # Do this *after* checking there are state events. Invalidating an entry is
+            # a waste of resources for anything else.
+            chains_to_invalidate = set()
+            chains_to_invalidate.update(
+                {(new_links.chain_id,) for new_links in new_event_links.values()}
+            )
+            # chains_to_invalidate must be a collection of tuples for replication,
+            # but for the local invalidation it does not, hence the unpacking
+            for (keys,) in chains_to_invalidate:
+                txn.call_after(self.store._chain_links_cache.invalidate, keys)
+
+            self.store._send_invalidation_to_replication_bulk(
+                txn, "_chain_links_cache", chains_to_invalidate
+            )
 
         # We only care about state events, so this if there are no state events.
         if not any(e.is_state() for e in events):
@@ -1258,6 +1275,8 @@ class PersistEventsStore:
         event_to_room_id: dict[str, str],
         event_to_types: dict[str, tuple[str, str]],
         event_to_auth_chain: dict[str, StrCollection],
+        chain_links_cache: LruCache[int, dict[int, set[tuple[int, int]]]] | None = None,
+        chain_link_query_batch_size: int = 1000,
     ) -> None:
         """Calculate and persist the chain cover index for the given events.
 
@@ -1275,6 +1294,8 @@ class PersistEventsStore:
             event_to_room_id,
             event_to_types,
             event_to_auth_chain,
+            chain_links_cache,
+            chain_link_query_batch_size,
         )
         cls._persist_chain_cover_index(txn, db_pool, new_event_links)
 
@@ -1287,6 +1308,8 @@ class PersistEventsStore:
         event_to_room_id: dict[str, str],
         event_to_types: dict[str, tuple[str, str]],
         event_to_auth_chain: dict[str, StrCollection],
+        chain_links_cache: LruCache[int, dict[int, set[tuple[int, int]]]] | None = None,
+        chain_link_query_batch_size: int = 1000,
     ) -> dict[str, NewEventChainLinks]:
         """Calculate the chain cover index for the given events.
 
@@ -1478,7 +1501,10 @@ class PersistEventsStore:
         chain_links = _LinkMap()
 
         for links in EventFederationStore._get_chain_links(
-            txn, {chain_id for chain_id, _ in chain_map.values()}
+            txn,
+            {chain_id for chain_id, _ in chain_map.values()},
+            chain_links_cache,
+            chain_link_query_batch_size,
         ):
             for origin_chain_id, inner_links in links.items():
                 for (

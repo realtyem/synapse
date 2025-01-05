@@ -77,8 +77,7 @@ number_pdus_in_federation_queue = Gauge(
 
 pdus_pruned_from_federation_queue = Counter(
     "synapse_federation_server_number_inbound_pdu_pruned",
-    "The number of events in the inbound federation staging that have been "
-    "pruned due to the queue getting too long",
+    "The number of events in the inbound federation staging that have been pruned due to the queue getting too long",
     labelnames=[SERVER_NAME_LABEL],
 )
 
@@ -159,6 +158,19 @@ class EventFederationWorkerStore(
                 self._delete_old_forward_extrem_cache, Duration(hours=1)
             )
 
+        # Cache of origin_chain_id to Set of Tuples of related origin sequences and
+        # their subsequent targets. Mapped as:
+        # origin_chain_id -> origin_sequence_number -> Set[Tuple[target_chain_id, target_sequence_number], ...]
+        # TODO: Might move this to EventsWorker store so it can be used by the
+        #  EventsBackgroundUpdatesStore as well. It seems rather silly there, but maybe
+        self._chain_links_cache: LruCache[int, dict[int, set[tuple[int, int]]]] = (
+            LruCache(
+                max_size=500000,
+                clock=self.clock,
+                server_name=self.server_name,
+                cache_name="chain_link_cache",
+            )
+        )
         # Cache of event ID to list of auth event IDs and their depths.
         self._event_auth_cache: LruCache[str, list[tuple[str, int]]] = LruCache(
             max_size=500000,
@@ -311,7 +323,12 @@ class EventFederationWorkerStore(
 
         # A map from chain ID to max sequence number *reachable* from any event ID.
         chains: dict[int, int] = {}
-        for links in self._get_chain_links(txn, set(event_chains.keys())):
+        for links in self._get_chain_links(
+            txn,
+            event_chains.keys(),
+            self._chain_links_cache,
+            self.hs.config.server.get_chain_links_batch_size,
+        ):
             for chain_id in links:
                 if chain_id not in event_chains:
                     continue
@@ -363,7 +380,11 @@ class EventFederationWorkerStore(
 
     @classmethod
     def _get_chain_links(
-        cls, txn: LoggingTransaction, chains_to_fetch: set[int]
+        cls,
+        txn: LoggingTransaction,
+        chains_to_fetch: Collection[int],
+        cache: LruCache[int, dict[int, set[tuple[int, int]]]] | None = None,
+        batch_size: int = 1000,
     ) -> Generator[dict[int, list[tuple[int, int, int]]], None, None]:
         """Fetch all auth chain links from the given set of chains, and all
         links from those chains, recursively.
@@ -374,6 +395,63 @@ class EventFederationWorkerStore(
         Returns a generator that produces dicts from origin chain ID to 3-tuple
         of origin sequence number, target chain ID and target sequence number.
         """
+
+        # In the cache retrieval section, this tracks what has been found. Later, it
+        # is used to reduce the batches to pull from the database
+        found_chains: set[int] = set()
+        # Additionally track target chains needed on the next pass
+        required_target_chains: set[int] = set()
+        # Used for the recursive part of cache retrieval
+        cache_entries: dict[int, dict[int, set[tuple[int, int]]]] = {}
+        # cached_links is the finished product going out on the first yield
+        cached_links: dict[int, list[tuple[int, int, int]]] = {}
+        # So we don't mutate chains_to_fetch by accident.
+        reducing_chains_to_fetch = set(chains_to_fetch)
+
+        if cache is not None:
+
+            def get_from_cache(fetch_these_chains: set[int]) -> None:
+                for chain_id in fetch_these_chains:
+                    if chain_id in found_chains or chain_id in cache_entries:
+                        continue
+
+                    cached_entry = cache.get(chain_id)
+                    if cached_entry is not None:
+                        cache_entries[chain_id] = cached_entry
+
+            # Cache retrieval is done in two stages. First grab all the initial entries
+            get_from_cache(reducing_chains_to_fetch)
+
+            # Then recursively add new entries by looking up the associated targets. All
+            # of them can go out on the first yield
+            while cache_entries:
+                origin_chain_id, dict_of_chain_links = cache_entries.popitem()
+                found_chains.add(origin_chain_id)
+
+                link_root = cached_links.setdefault(origin_chain_id, [])
+
+                for origin_seq_num, target_links in dict_of_chain_links.items():
+                    for target_chain_id, target_seq_num in target_links:
+                        # Save that this needs to be pulled in the next loop unless
+                        # it was in the past
+                        if target_chain_id not in found_chains:
+                            required_target_chains.add(target_chain_id)
+
+                        link_root.append(
+                            (origin_seq_num, target_chain_id, target_seq_num)
+                        )
+
+                # Add all the chains that were found to be required to what is being
+                # fetched from the database, if they are found in the cache they
+                # will be removed again. One may have gotten invalidated by surprise
+                reducing_chains_to_fetch.update(required_target_chains)
+                # When cache_entries is empty, check if there is more to try for
+                # This should just fall through if there was nothing else to recurse
+                if not cache_entries and required_target_chains:
+                    get_from_cache(required_target_chains)
+                    required_target_chains.clear()
+
+            yield cached_links
 
         # This query is structured to first get all chain IDs reachable, and
         # then pull out all links from those chains. This does pull out more
@@ -399,9 +477,14 @@ class EventFederationWorkerStore(
             INNER JOIN event_auth_chain_links ON (chain_id = origin_chain_id)
         """
 
-        while chains_to_fetch:
-            batch2 = tuple(itertools.islice(chains_to_fetch, 1000))
-            chains_to_fetch.difference_update(batch2)
+        # It should be empty from above, reset it anyway
+        cache_entries.clear()
+
+        reducing_chains_to_fetch.difference_update(found_chains)
+
+        while reducing_chains_to_fetch:
+            batch2 = tuple(itertools.islice(reducing_chains_to_fetch, batch_size))
+            reducing_chains_to_fetch.difference_update(batch2)
             clause, args = make_in_list_sql_clause(
                 txn.database_engine, "origin_chain_id", batch2
             )
@@ -419,7 +502,30 @@ class EventFederationWorkerStore(
                     (origin_sequence_number, target_chain_id, target_sequence_number)
                 )
 
-            chains_to_fetch.difference_update(links)
+            if cache is not None:
+                # Condense the links for caching
+                for origin_chain_id, list_of_chains in links.items():
+                    origin_root = cache_entries.setdefault(origin_chain_id, {})
+                    for (
+                        origin_sequence_number,
+                        target_chain_id,
+                        target_sequence_number,
+                    ) in list_of_chains:
+                        origin_root.setdefault(origin_sequence_number, set()).add(
+                            (target_chain_id, target_sequence_number)
+                        )
+
+                for cache_key, cache_entry in cache_entries.items():
+                    existing_cache_entry = cache.get(cache_key, update_metrics=False)
+                    if existing_cache_entry is None:
+                        # The happy path
+                        cache.set(cache_key, cache_entry)
+                    else:
+                        # Unconditionally update the cache entry. It may have been
+                        # missing before, in which case we manually extracted it
+                        existing_cache_entry.update(cache_entry)
+
+            reducing_chains_to_fetch.difference_update(links)
 
             yield links
 
@@ -447,7 +553,9 @@ class EventFederationWorkerStore(
         front = set(event_ids)
         while front:
             new_front: set[str] = set()
-            for chunk in batch_iter(front, 100):
+            for chunk in batch_iter(
+                front, self.hs.config.server.get_chain_links_batch_size
+            ):
                 # Pull the auth events either from the cache or DB.
                 to_fetch: list[str] = []  # Event IDs to fetch from DB
                 for event_id in chunk:
@@ -697,9 +805,12 @@ class EventFederationWorkerStore(
 
         # Now we look up all links for the chains we have, adding chains that
         # are reachable from any event.
-
-        # (We need to take a copy of `seen_chains` as the function mutates it)
-        for links in self._get_chain_links(txn, set(seen_chains)):
+        for links in self._get_chain_links(
+            txn,
+            seen_chains,
+            self._chain_links_cache,
+            self.hs.config.server.get_chain_links_batch_size,
+        ):
             # `links` encodes the backwards reachable events _from a single chain_ all the way to
             # the root of the graph.
             for chains in set_to_chain:
@@ -1124,7 +1235,10 @@ class EventFederationWorkerStore(
 
             # Fetch the auth events and their depths of the N last events we're
             # currently walking, either from cache or DB.
-            search, chunk = search[:-100], search[-100:]
+            search, chunk = (
+                search[: -self.hs.config.server.get_chain_links_batch_size],
+                search[-self.hs.config.server.get_chain_links_batch_size :],
+            )
 
             found: list[tuple[str, str, int]] = []  # Results found
             to_fetch: list[str] = []  # Event IDs to fetch from DB

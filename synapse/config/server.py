@@ -23,6 +23,7 @@ import argparse
 import itertools
 import logging
 import os.path
+import sys
 import urllib.parse
 from textwrap import indent
 from typing import Any, Iterable, TypedDict
@@ -74,6 +75,7 @@ Please see https://element-hq.github.io/synapse/latest/upgrade.html#direct-tcp-r
 # We later check for errors when binding to 0.0.0.0 and ignore them if :: is also in
 # in the list.
 DEFAULT_BIND_ADDRESSES = ["::", "0.0.0.0"]
+MAXINT = sys.maxsize
 
 
 def _6to4(network: IPNetwork) -> IPNetwork:
@@ -988,6 +990,20 @@ class ServerConfig(Config):
         self.msc4140_enabled = bool(
             self.max_delayed_events_per_user and self.max_event_delay_duration
         )
+
+        get_chain_links_batch_size = config.get("get_chain_links_batch_size")
+        if get_chain_links_batch_size is None:
+            self.get_chain_links_batch_size = 1000
+        else:
+            try:
+                batch_size = int(get_chain_links_batch_size)
+            except TypeError:
+                self.get_chain_links_batch_size = 1000
+            else:
+                if batch_size < 1000 or batch_size >= MAXINT:
+                    self.get_chain_links_batch_size = 1000
+                else:
+                    self.get_chain_links_batch_size = batch_size
 
     def has_tls_listener(self) -> bool:
         return any(listener.is_tls() for listener in self.listeners)
