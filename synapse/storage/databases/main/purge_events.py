@@ -431,8 +431,8 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
             "current_state_events",
             "current_state_delta_stream",
             "destination_rooms",
-            "device_list_changes_converted_stream_position",
-            "device_list_changes_in_room",
+            "device_lists_changes_converted_stream_position",
+            "device_lists_changes_in_room",
             "event_backward_extremities",
             "event_forward_extremities",
             "event_push_actions",
@@ -505,8 +505,8 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
 
         # What about
         #
-        # +device_list_changes_converted_stream_position (room_id, no index)
-        # +device_list_changes_in_room (room_id)
+        # +device_lists_changes_converted_stream_position (room_id, no index)
+        # +device_lists_changes_in_room (room_id)
         # -e2e_room_keys (room_id)
         # -event_labels (room_id, unused)
         # -event_push_actions (room_id)
