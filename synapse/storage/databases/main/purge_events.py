@@ -409,6 +409,7 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
             "event_to_state_groups",
             "event_auth_chains",
             "event_auth_chain_to_calculate",
+            "ex_outlier_stream",
             "redactions",
             "rejections",
             "state_events",
@@ -428,7 +429,10 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
         # next, the tables with an index on room_id (or no useful index)
         for table in (
             "current_state_events",
+            "current_state_delta_stream",
             "destination_rooms",
+            "device_list_changes_converted_stream_position",
+            "device_list_changes_in_room",
             "event_backward_extremities",
             "event_forward_extremities",
             "event_push_actions",
@@ -456,7 +460,10 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
             "room_stats_state",
             "room_stats_current",
             "room_stats_earliest_token",
+            "room_tags_revisions",  # no index, may take a while for sequential scan
             "stream_ordering_to_exterm",
+            "threads",
+            "timeline_gaps",
             "users_in_public_rooms",
             "users_who_share_private_rooms",
             # no useful index, but let's clear them anyway
@@ -489,11 +496,24 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
         #       Given that these are intended for abuse management my initial
         #       inclination is to leave them in place.
         #
-        #  - current_state_delta_stream
-        #  - ex_outlier_stream
-        #  - room_tags_revisions
+        #  - current_state_delta_stream, trying it
+        #  - ex_outlier_stream, trying it
+        #  - room_tags_revisions, trying it
         #       The problem with these is that they are largeish and there is no room_id
         #       index on them. In any case we should be clearing out 'stream' tables
         #       periodically anyway (https://github.com/matrix-org/synapse/issues/5888)
+
+        # What about
+        #
+        # +device_list_changes_converted_stream_position (room_id, no index)
+        # +device_list_changes_in_room (room_id)
+        # -e2e_room_keys (room_id)
+        # -event_labels (room_id, unused)
+        # -event_push_actions (room_id)
+        # -event_txn_id_device_id (room_id, has on delete cascade)
+        # +threads (room_id)
+        # +timeline_gaps (room_id)
+        # -un_partial_stated_event_stream (event_id, has on delete cascade)
+        # -un_partial_stated_room_stream (room_id, has on delete cascade)
 
         self._invalidate_caches_for_room_and_stream(txn, room_id)
