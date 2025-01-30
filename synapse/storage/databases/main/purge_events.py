@@ -42,6 +42,7 @@ purge_room_tables_with_event_id_index = (
     "event_to_state_groups",
     "event_auth_chains",
     "event_auth_chain_to_calculate",
+    "ex_outlier_stream",
     "redactions",
     "rejections",
     "state_events",
@@ -52,7 +53,10 @@ Tables which lack an index on `room_id` but have one on `event_id`
 
 purge_room_tables_with_room_id_column = (
     "current_state_events",
+    "current_state_delta_stream",
     "destination_rooms",
+    "device_lists_changes_converted_stream_position",
+    "device_lists_changes_in_room",
     "event_backward_extremities",
     "event_forward_extremities",
     "event_push_actions",
@@ -84,7 +88,10 @@ purge_room_tables_with_room_id_column = (
     "room_stats_state",
     "room_stats_current",
     "room_stats_earliest_token",
+    "room_tags_revisions",  # no index, may take a while for sequential scan
     "stream_ordering_to_exterm",
+    "threads",
+    "timeline_gaps",
     "users_in_public_rooms",
     "users_who_share_private_rooms",
     # no useful index, but let's clear them anyway
@@ -580,5 +587,18 @@ class PurgeEventsStore(StateGroupWorkerStore, CacheInvalidationWorkerStore):
         #       The problem with these is that they are largeish and there is no room_id
         #       index on them. In any case we should be clearing out 'stream' tables
         #       periodically anyway (https://github.com/matrix-org/synapse/issues/5888)
+
+        # What about
+        #
+        # +device_lists_changes_converted_stream_position (room_id, no index)
+        # +device_lists_changes_in_room (room_id)
+        # -e2e_room_keys (room_id)
+        # -event_labels (room_id, unused)
+        # -event_push_actions (room_id)
+        # -event_txn_id_device_id (room_id, has on delete cascade, ignoring)
+        # +threads (room_id)
+        # +timeline_gaps (room_id)
+        # -un_partial_stated_event_stream (event_id, has on delete cascade, ignoring)
+        # -un_partial_stated_room_stream (room_id, has on delete cascade, ignoring)
 
         self._invalidate_caches_for_room_and_stream(txn, room_id)
