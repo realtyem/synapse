@@ -378,7 +378,18 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         """
 
         while chains_to_fetch:
-            batch2 = tuple(itertools.islice(chains_to_fetch, 1000))
+            # Bumping this number will cut down on how many slices the number of chains
+            # is cut into. The problem is that the bulk of the data it is pulling out
+            # is identical. Deduplicating this is very problematic, other than just
+            # telling it to do more at once. The default is 1000, and I run with 100000
+            # on my server. Make sure you have tuned your Postgres instance to have a
+            # `work_mem` of at least 128MB if you go as high as I have. In theory, you
+            # can remove the batching altogether, but it is very hard on the database.
+            #
+            # TLDR: Adjusting this up means that 8 minute queries started taking 10
+            # seconds instead.
+            BATCH_SIZE = 20000
+            batch2 = tuple(itertools.islice(chains_to_fetch, BATCH_SIZE))
             chains_to_fetch.difference_update(batch2)
             clause, args = make_in_list_sql_clause(
                 txn.database_engine, "origin_chain_id", batch2
