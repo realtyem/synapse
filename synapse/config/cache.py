@@ -109,6 +109,7 @@ class CacheConfig(Config):
     track_memory_usage: bool
     expiry_time_msec: Optional[int]
     sync_response_cache_duration: int
+    state_ids_response_cache_duration: int
 
     @staticmethod
     def reset() -> None:
@@ -209,6 +210,10 @@ class CacheConfig(Config):
 
         self.sync_response_cache_duration = self.parse_duration(
             cache_config.get("sync_response_cache_duration", "2m")
+        )
+
+        self.state_ids_response_cache_duration = self.parse_duration(
+            cache_config.get("state_ids_response_cache_duration", "5m")
         )
 
     def resize_all_caches(self) -> None:

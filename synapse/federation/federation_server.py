@@ -172,8 +172,15 @@ class FederationServer(FederationBase):
         self._state_resp_cache: ResponseCache[Tuple[str, Optional[str]]] = (
             ResponseCache(hs.get_clock(), "state_resp", timeout_ms=30000)
         )
+        # The default here is 30 seconds. The think the timer starts after the
+        # request is finished, but am not completely certain on that. Based on some
+        # of your metrics, the requests seem to come in batches of about 3-4 minutes.
+        # This should stop repeatedly having to recompute the state ids from remote
+        # servers, which is much more intensive than the one above
         self._state_ids_resp_cache: ResponseCache[Tuple[str, str]] = ResponseCache(
-            hs.get_clock(), "state_ids_resp", timeout_ms=30000
+            hs.get_clock(),
+            "state_ids_resp",
+            timeout_ms=hs.config.caches.state_ids_response_cache_duration,
         )
 
         self._federation_metrics_domains = (
