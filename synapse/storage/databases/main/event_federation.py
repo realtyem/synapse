@@ -289,12 +289,12 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         # A map from chain ID to max sequence number *reachable* from any event ID.
         chains: Dict[int, int] = {}
-        for links in self._get_chain_links(txn, set(event_chains.keys())):
-            for chain_id in links:
-                if chain_id not in event_chains:
-                    continue
+        links = self._get_chain_links(txn, set(event_chains.keys()))
+        for chain_id in links:
+            if chain_id not in event_chains:
+                continue
 
-                _materialize(chain_id, event_chains[chain_id], links, chains)
+            _materialize(chain_id, event_chains[chain_id], links, chains)
 
         # Add the initial set of chains, excluding the sequence corresponding to
         # initial event.
@@ -342,7 +342,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
     @classmethod
     def _get_chain_links(
         cls, txn: LoggingTransaction, chains_to_fetch: Set[int]
-    ) -> Generator[Dict[int, List[Tuple[int, int, int]]], None, None]:
+    ) -> Dict[int, List[Tuple[int, int, int]]]:
         """Fetch all auth chain links from the given set of chains, and all
         links from those chains, recursively.
 
@@ -398,8 +398,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
             chains_to_fetch.difference_update(links)
 
-        yield links
-        links.clear()
+        return links
 
     def _get_auth_chain_ids_txn(
         self, txn: LoggingTransaction, event_ids: Collection[str], include_given: bool
@@ -589,15 +588,15 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
         # are reachable from any event.
 
         # (We need to take a copy of `seen_chains` as the function mutates it)
-        for links in self._get_chain_links(txn, set(seen_chains)):
-            for chains in set_to_chain:
-                for chain_id in links:
-                    if chain_id not in chains:
-                        continue
+        links = self._get_chain_links(txn, set(seen_chains))
+        for chains in set_to_chain:
+            for chain_id in links:
+                if chain_id not in chains:
+                    continue
 
-                    _materialize(chain_id, chains[chain_id], links, chains)
+                _materialize(chain_id, chains[chain_id], links, chains)
 
-                seen_chains.update(chains)
+            seen_chains.update(chains)
 
         # Now for each chain we figure out the maximum sequence number reachable
         # from *any* state set and the minimum sequence number reachable from

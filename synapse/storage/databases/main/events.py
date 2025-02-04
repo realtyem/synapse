@@ -1286,20 +1286,20 @@ class PersistEventsStore:
         # referenced.
         chain_links = _LinkMap()
 
-        for links in EventFederationStore._get_chain_links(
+        links = EventFederationStore._get_chain_links(
             txn, {chain_id for chain_id, _ in chain_map.values()}
-        ):
-            for origin_chain_id, inner_links in links.items():
-                for (
-                    origin_sequence_number,
-                    target_chain_id,
-                    target_sequence_number,
-                ) in inner_links:
-                    chain_links.add_link(
-                        (origin_chain_id, origin_sequence_number),
-                        (target_chain_id, target_sequence_number),
-                        new=False,
-                    )
+    )
+        for origin_chain_id, inner_links in links.items():
+            for (
+                origin_sequence_number,
+                target_chain_id,
+                target_sequence_number,
+            ) in inner_links:
+                chain_links.add_link(
+                    (origin_chain_id, origin_sequence_number),
+                    (target_chain_id, target_sequence_number),
+                    new=False,
+                )
 
         # We do this in toplogical order to avoid adding redundant links.
         for event_id in sorted_topologically(
