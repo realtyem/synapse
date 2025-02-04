@@ -377,6 +377,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
             INNER JOIN event_auth_chain_links ON (chain_id = origin_chain_id)
         """
 
+        links: Dict[int, List[Tuple[int, int, int]]] = {}
         while chains_to_fetch:
             batch2 = tuple(itertools.islice(chains_to_fetch, 1000))
             chains_to_fetch.difference_update(batch2)
@@ -384,8 +385,6 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
                 txn.database_engine, "origin_chain_id", batch2
             )
             txn.execute(sql % (clause,), args)
-
-            links: Dict[int, List[Tuple[int, int, int]]] = {}
 
             for (
                 origin_chain_id,
@@ -399,7 +398,8 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
             chains_to_fetch.difference_update(links)
 
-            yield links
+        yield links
+        links.clear()
 
     def _get_auth_chain_ids_txn(
         self, txn: LoggingTransaction, event_ids: Collection[str], include_given: bool
