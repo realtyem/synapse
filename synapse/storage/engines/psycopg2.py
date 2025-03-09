@@ -85,4 +85,3 @@ class Psycopg2Engine(
         else:
             pg_isolation_level = self.isolation_level_map[isolation_level]
         return conn.set_isolation_level(pg_isolation_level)
-
