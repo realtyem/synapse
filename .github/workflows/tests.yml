@@ -502,6 +502,7 @@ jobs:
         SYTEST_DEFAULT_BRANCH: ${{ startsWith(github.base_ref, 'release-') && github.base_ref || 'develop' }}
         SYTEST_BRANCH: ${{ github.head_ref }}
         POSTGRES: ${{ matrix.job.postgres && 1}}
+        PGMODULE: ${{ matrix.job.pgmodule }}
         MULTI_POSTGRES: ${{ (matrix.job.postgres == 'multi-postgres') || '' }}
         ASYNCIO_REACTOR: ${{ (matrix.job.reactor == 'asyncio') || '' }}
         WORKERS: ${{ matrix.job.workers && 1 }}

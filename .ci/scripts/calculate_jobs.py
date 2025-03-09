@@ -133,6 +133,11 @@ sytest_tests = [
     },
     {
         "sytest-tag": "bullseye",
+        "postgres": "postgres",
+        "pgmodule": "psycopg",
+    },
+    {
+        "sytest-tag": "bullseye",
         "postgres": "multi-postgres",
         "workers": "workers",
     },
