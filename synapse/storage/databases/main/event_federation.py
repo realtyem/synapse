@@ -1418,6 +1418,57 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
             for row in txn
         ]
 
+    def _get_backfill_results_from_depth_and_stream_ordering_txn(
+        self, txn: LoggingTransaction, room_id: str, depth: int, limit: int
+    ) -> List[BackfillQueueNavigationItem]:
+        """
+        Find any events by depth and stream ordering. Depth has issues, especially
+        at MAX_DEPTH, so use stream ordering also to find them in order. We are calling
+        it 'depth' but it really is the same as 'topological_ordering'
+
+        Args:
+            txn: The database transaction to use
+            room_id: The room ID to isolate by
+            depth: The starting figure for depth, to descend by
+            limit: Max number of event ID's to query for and return
+
+        Returns:
+            List of prev events that the backfill queue can process
+        """
+        # Look for the topological order connected to the given event_id, and pull LIMIT
+        # of descending. We use topological_ordering here specifically instead of depth
+        # (since both columns exist) because the former has an index.
+        connected_prev_event_query = """
+            SELECT topological_ordering, stream_ordering, event_id FROM events
+
+            /* exclude outliers from the results (we don't have the state, so cannot
+             * verify if the requesting server can see them).
+             */
+            WHERE NOT events.outlier
+
+            /* Watch for depth lower or equal to what we started with */
+            AND events.topological_ordering <= ? AND events.room_id = ?
+
+            /* Because we can have many events at the same depth,
+            * we want to also tie-break and sort on stream_ordering */
+            ORDER BY topological_ordering DESC, stream_ordering DESC
+            LIMIT ?
+        """
+
+        txn.execute(
+            connected_prev_event_query,
+            (depth, room_id, limit),
+        )
+        return [
+            BackfillQueueNavigationItem(
+                depth=row[0],
+                stream_ordering=row[1],
+                event_id=row[2],
+                type=row[3],
+            )
+            for row in txn
+        ]
+
     async def get_backfill_events(
         self, room_id: str, seed_event_id_list: List[str], limit: int
     ) -> List[EventBase]:
@@ -1502,7 +1553,7 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
         while not queue.empty() and len(event_id_results) < limit:
             try:
-                _, _, event_id, event_type = queue.get_nowait()
+                depth, _, event_id, event_type = queue.get_nowait()
             except Empty:
                 break
 
@@ -1513,8 +1564,8 @@ class EventFederationWorkerStore(SignatureWorkerStore, EventsWorkerStore, SQLBas
 
             # Now we just look up the DAG by prev_events as normal
             connected_prev_event_backfill_results = (
-                self._get_connected_prev_event_backfill_results_txn(
-                    txn, event_id, limit - len(event_id_results)
+                self._get_backfill_results_from_depth_and_stream_ordering_txn(
+                    txn, room_id, depth, limit - len(event_id_results)
                 )
             )
             logger.debug(
