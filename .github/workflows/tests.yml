@@ -92,7 +92,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           python-version: "3.x"
           poetry-version: "2.1.1"
@@ -132,7 +132,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Poetry
-        uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+        uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           poetry-version: "2.1.1"
           install-project: "false"
@@ -160,7 +160,7 @@ jobs:
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
       - name: Setup Poetry
-        uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+        uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           # We want to make use of type hints in optional dependencies too.
           extras: all
@@ -221,7 +221,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           poetry-version: "2.1.1"
           extras: "all"
@@ -377,7 +377,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           python-version: ${{ matrix.job.python-version }}
           poetry-version: "2.1.1"
@@ -481,7 +481,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       # Install libs necessary for PyPy to build binary wheels for dependencies
       - run: sudo apt-get -qq install xmlsec1 libxml2-dev libxslt-dev
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           python-version: ${{ matrix.python-version }}
           poetry-version: "2.1.1"
@@ -577,7 +577,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: sudo apt-get -qq install xmlsec1 postgresql-client
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           poetry-version: "2.1.1"
           extras: "postgres"
@@ -630,7 +630,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo apt-get update
       - run: sudo apt-get -qq install xmlsec1 postgresql-client
-      - uses: matrix-org/setup-python-poetry@5bbf6603c5c930615ec8a29f1b5d7d258d905aa4 # v2.0.0
+      - uses: realtyem/setup-python-poetry@jason/venv-caching
         with:
           python-version: ${{ matrix.python-version }}
           poetry-version: "2.1.1"
