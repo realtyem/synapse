@@ -171,7 +171,9 @@ immutabledict = ">=2.0"
 # We require 2.1.0 or higher for type hints. Previous guard was >= 1.1.0
 unpaddedbase64 = ">=2.1.0"
 # We require 2.0.0 for immutabledict support.
-canonicaljson = "^2.0.0"
+orjson = ">=3.10"
+canonicaljson = { git = "https://github.com/realtyem/python-canonicaljson", branch= "jason/orjson" }
+
 # we use the type definitions added in signedjson 1.1.
 signedjson = "^1.1.0"
 # validating SSL certs for IP addresses requires service_identity 18.1.
