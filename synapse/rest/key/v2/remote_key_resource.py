@@ -292,7 +292,7 @@ class RemoteKey(RestServlet):
         else:
             signed_keys = []
             for key_json_raw in json_results:
-                key_json = json_decoder.decode(key_json_raw.decode("utf-8"))
+                key_json = json_decoder.decode(key_json_raw)
                 for signing_key in self.config.key.key_server_signing_keys:
                     key_json = sign_json(
                         key_json, self.config.server.server_name, signing_key

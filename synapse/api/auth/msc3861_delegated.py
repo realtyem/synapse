@@ -354,7 +354,7 @@ class MSC3861DelegatedAuth(BaseAuth):
             code=200, **{SERVER_NAME_LABEL: self.server_name}
         ).observe(end_time - start_time)
 
-        resp = json_decoder.decode(resp_body.decode("utf-8"))
+        resp = json_decoder.decode(resp_body)
 
         if not isinstance(resp, dict):
             raise ValueError(

@@ -837,7 +837,7 @@ def parse_json_value_from_request(
         return None
 
     try:
-        content = json_decoder.decode(content_bytes.decode("utf-8"))
+        content = json_decoder.decode(content_bytes)
     except Exception as e:
         logger.warning(
             "Unable to parse JSON from %s %s response: %s (%s)",

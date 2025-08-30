@@ -520,7 +520,7 @@ class BaseHttpClient:
         body = await make_deferred_yieldable(readBody(response))
 
         if 200 <= response.code < 300:
-            return json_decoder.decode(body.decode("utf-8"))
+            return json_decoder.decode(body)
         else:
             raise HttpResponseException(
                 response.code, response.phrase.decode("ascii", errors="replace"), body
@@ -567,7 +567,7 @@ class BaseHttpClient:
         body = await make_deferred_yieldable(readBody(response))
 
         if 200 <= response.code < 300:
-            return json_decoder.decode(body.decode("utf-8"))
+            return json_decoder.decode(body)
         else:
             raise HttpResponseException(
                 response.code, response.phrase.decode("ascii", errors="replace"), body
@@ -601,7 +601,7 @@ class BaseHttpClient:
             actual_headers.update(headers)  # type: ignore
 
         body = await self.get_raw(uri, args, headers=actual_headers)
-        return json_decoder.decode(body.decode("utf-8"))
+        return json_decoder.decode(body)
 
     async def put_json(
         self,
@@ -649,7 +649,7 @@ class BaseHttpClient:
         body = await make_deferred_yieldable(readBody(response))
 
         if 200 <= response.code < 300:
-            return json_decoder.decode(body.decode("utf-8"))
+            return json_decoder.decode(body)
         else:
             raise HttpResponseException(
                 response.code, response.phrase.decode("ascii", errors="replace"), body

@@ -837,7 +837,7 @@ class HttpResponseException(CodeMessageException):
         # try to parse the body as json, to get better errcode/msg, but
         # default to M_UNKNOWN with the HTTP status as the error text
         try:
-            j = json_decoder.decode(self.response.decode("utf-8"))
+            j = json_decoder.decode(self.response)
         except ValueError:
             j = {}
 

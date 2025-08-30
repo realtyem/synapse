@@ -122,9 +122,7 @@ class ServerWellKnownResource(Resource):
         if port is None:
             port = 443
 
-        self._response = json_encoder.encode({"m.server": f"{host}:{port}"}).encode(
-            "utf-8"
-        )
+        self._response = json_encoder.encode_bytes({"m.server": f"{host}:{port}"})
 
     def render_GET(self, request: Request) -> bytes:
         if not self._serve_server_wellknown:

@@ -789,7 +789,7 @@ def _encode_json_bytes(json_object: object) -> bytes:
     """
     Encode an object into JSON. Returns an iterator of bytes.
     """
-    return json_encoder.encode(json_object).encode("utf-8")
+    return json_encoder.encode_bytes(json_object)
 
 
 def respond_with_json(

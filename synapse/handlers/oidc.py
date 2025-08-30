@@ -309,7 +309,7 @@ class OidcHandler:
 
         try:
             payload_bytes = unpaddedbase64.decode_base64(payload)
-            claims = json_decoder.decode(payload_bytes.decode("utf-8"))
+            claims = json_decoder.decode(payload_bytes)
         except (json.JSONDecodeError, binascii.Error, UnicodeError):
             raise SynapseError(400, "Invalid logout_token payload in request")
 
@@ -800,7 +800,7 @@ class OidcProvider:
             # and check for an error field. If not, we respond with a generic
             # error message.
             try:
-                resp = json_decoder.decode(resp_body.decode("utf-8"))
+                resp = json_decoder.decode(resp_body)
                 error = resp["error"]
                 description = resp.get("error_description", error)
             except (ValueError, KeyError):
@@ -817,7 +817,7 @@ class OidcProvider:
 
         # Since it is a not a 5xx code, body should be a valid JSON. It will
         # raise if not.
-        resp = json_decoder.decode(resp_body.decode("utf-8"))
+        resp = json_decoder.decode(resp_body)
 
         if "error" in resp:
             error = resp["error"]
@@ -893,7 +893,7 @@ class OidcProvider:
                 jwk_set = await self.load_jwks(force=True)  # try reloading the jwks
                 decoded_resp = jwt.decode(body, key=jwk_set)
         else:
-            decoded_resp = json_decoder.decode(body.decode("utf-8"))
+            decoded_resp = json_decoder.decode(body)
 
         logger.debug("Retrieved user info from userinfo endpoint: %r", decoded_resp)
 

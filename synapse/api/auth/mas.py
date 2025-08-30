@@ -254,7 +254,7 @@ class MasDelegatedAuth(BaseAuth):
             code=200, **{SERVER_NAME_LABEL: self.server_name}
         ).observe(end_time - start_time)
 
-        raw_response = json_decoder.decode(resp_body.decode("utf-8"))
+        raw_response = json_decoder.decode(resp_body)
         try:
             response = IntrospectionResponse(
                 retrieved_at_ms=self._clock.time_msec(),

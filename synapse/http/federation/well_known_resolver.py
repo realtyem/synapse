@@ -211,7 +211,7 @@ class WellKnownResolver:
             if response.code != 200:
                 raise Exception("Non-200 response %s" % (response.code,))
 
-            parsed_body = json_decoder.decode(body.decode("utf-8"))
+            parsed_body = json_decoder.decode(body)
             logger.info("Response from .well-known: %s", parsed_body)
 
             result = parsed_body["m.server"].encode("ascii")

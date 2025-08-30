@@ -150,7 +150,7 @@ class OEmbedProvider:
 
         try:
             # oEmbed responses *must* be UTF-8 according to the spec.
-            oembed = json_decoder.decode(raw_body.decode("utf-8"))
+            oembed = json_decoder.decode(raw_body)
         except ValueError:
             return OEmbedResult({}, None, None)
 

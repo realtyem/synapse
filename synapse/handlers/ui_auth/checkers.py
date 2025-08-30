@@ -139,7 +139,7 @@ class RecaptchaAuthChecker(UserInteractiveAuthChecker):
             # For mypy's benefit. A general Error.response is Optional[bytes], but
             # a PartialDownloadError.response should be bytes AFAICS.
             assert data is not None
-            resp_body = json_decoder.decode(data.decode("utf-8"))
+            resp_body = json_decoder.decode(data)
 
         if "success" in resp_body:
             # Note that we do NOT check the hostname here: we explicitly
