@@ -18,7 +18,6 @@
 # [This file includes modifications made by New Vector Limited]
 #
 #
-import json
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, cast
 
 from canonicaljson import encode_canonical_json
@@ -34,6 +33,7 @@ from synapse.storage.database import (
 from synapse.storage.databases.main.roommember import ProfileInfo
 from synapse.storage.engines import PostgresEngine, Sqlite3Engine
 from synapse.types import JsonDict, JsonValue, UserID
+from synapse.util import json_decoder
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -266,7 +266,7 @@ class ProfileWorkerStore(SQLBaseStore):
                 # Scalar values are properly returned directly.
                 if value_type in ("object", "array"):
                     assert isinstance(value, str)
-                    return json.loads(value)
+                    return json_decoder.decode(value)
                 return value
 
         return await self.db_pool.runInteraction("get_profile_field", get_profile_field)
@@ -290,7 +290,7 @@ class ProfileWorkerStore(SQLBaseStore):
         # The SQLite driver doesn't automatically convert JSON to
         # Python objects
         if isinstance(self.database_engine, Sqlite3Engine) and result:
-            result = json.loads(result)
+            result = json_decoder.decode(result)
         return result or {}
 
     async def create_profile(self, user_id: UserID) -> None:
@@ -475,7 +475,7 @@ class ProfileWorkerStore(SQLBaseStore):
                         field_name,
                         # Pass as a JSON object since we have passing bytes disabled
                         # at the database driver.
-                        Json(json.loads(canonical_value)),
+                        Json(json_decoder.decode(canonical_value)),
                     ),
                 )
             else:

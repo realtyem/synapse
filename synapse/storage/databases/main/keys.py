@@ -20,7 +20,6 @@
 #
 
 import itertools
-import json
 import logging
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast
 
@@ -33,6 +32,7 @@ from synapse.storage.databases.main.cache import CacheInvalidationWorkerStore
 from synapse.storage.keys import FetchKeyResult, FetchKeyResultForRemote
 from synapse.storage.types import Cursor
 from synapse.types import JsonDict
+from synapse.util import json_decoder
 from synapse.util.caches.descriptors import cached, cachedList
 from synapse.util.iterutils import batch_iter
 
@@ -179,7 +179,7 @@ class KeyStore(CacheInvalidationWorkerStore):
 
                 # The entire signed JSON response is stored in server_keys_json,
                 # fetch out the bits needed.
-                key_json = json.loads(bytes(key_json_bytes))
+                key_json = json_decoder.decode(bytes(key_json_bytes))
                 key_base64 = key_json["verify_keys"][key_id]["key"]
 
                 keys[(server_name, key_id)] = FetchKeyResult(

@@ -17,7 +17,6 @@
 # [This file includes modifications made by New Vector Limited]
 #
 #
-import json
 import logging
 import threading
 import weakref
@@ -92,7 +91,7 @@ from synapse.storage.util.sequence import build_sequence_generator
 from synapse.types import JsonDict, get_domain_from_id
 from synapse.types.state import StateFilter
 from synapse.types.storage import _BackgroundUpdates
-from synapse.util import unwrapFirstError
+from synapse.util import json_decoder, unwrapFirstError
 from synapse.util.async_helpers import ObservableDeferred, delay_cancellation
 from synapse.util.caches.descriptors import cached, cachedList
 from synapse.util.caches.lrucache import AsyncLruCache
@@ -1615,7 +1614,7 @@ class EventsWorkerStore(SQLBaseStore):
                 if not event:
                     continue
                 events.append(event)
-                event_json = json.loads(event.json)
+                event_json = json_decoder.decode(event.json)
                 room_id = event_json.get("room_id")
                 user_id = event_json.get("sender")
                 to_check.append((room_id, user_id))
@@ -1638,7 +1637,7 @@ class EventsWorkerStore(SQLBaseStore):
                 redact_end_ordering,
             ) in txn:
                 for e_row in events:
-                    e_json = json.loads(e_row.json)
+                    e_json = json_decoder.decode(e_row.json)
                     room_id = e_json.get("room_id")
                     user_id = e_json.get("sender")
                     room_and_user = (returned_room_id, returned_user_id)

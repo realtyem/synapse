@@ -19,7 +19,6 @@
 #
 #
 
-import json
 import os
 import urllib.parse
 from hashlib import blake2b
@@ -28,6 +27,7 @@ from typing import Optional
 
 import synapse
 from synapse.synapse_rust import get_rust_file_digest
+from synapse.util import json_decoder
 
 
 def check_rust_lib_up_to_date() -> None:
@@ -116,7 +116,7 @@ def get_synapse_source_directory() -> Optional[str]:
 
     # c.f. https://packaging.python.org/en/latest/specifications/direct-url/ for
     # the format
-    direct_url_dict: dict = json.loads(direct_url_json)
+    direct_url_dict: dict = json_decoder.decode(direct_url_json)
 
     # `url` must exist as a key, and point to where we fetched the repo from.
     project_url = urllib.parse.urlparse(direct_url_dict["url"])
