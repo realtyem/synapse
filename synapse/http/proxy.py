@@ -19,7 +19,6 @@
 #
 #
 
-import json
 import logging
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Optional, Set, Tuple, cast
@@ -40,6 +39,7 @@ from synapse.http import QuieterFileBodyProducer
 from synapse.http.server import _AsyncResource
 from synapse.logging.context import make_deferred_yieldable, run_in_background
 from synapse.types import ISynapseReactor
+from synapse.util import json_encoder
 from synapse.util.async_helpers import timeout_deferred
 
 if TYPE_CHECKING:
@@ -227,7 +227,7 @@ class ProxyResource(_AsyncResource):
 
         request.setResponseCode(error_response_code)
         request.setHeader(b"Content-Type", b"application/json")
-        request.write((json.dumps(error_response_json)).encode())
+        request.write(json_encoder.encode_bytes(error_response_json))
         request.finish()
 
 

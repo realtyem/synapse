@@ -20,7 +20,6 @@
 #
 import contextlib
 import hashlib
-import json
 import logging
 import os
 import shutil
@@ -55,7 +54,7 @@ from synapse.api.errors import NotFoundError
 from synapse.logging.context import defer_to_thread, run_in_background
 from synapse.logging.opentracing import start_active_span, trace, trace_with_opname
 from synapse.media._base import ThreadedFileSender
-from synapse.util import Clock
+from synapse.util import Clock, json_encoder
 from synapse.util.file_consumer import BackgroundFileConsumer
 
 from ..types import JsonDict
@@ -559,8 +558,7 @@ class MultipartFileConsumer:
             content_type = Header(b"Content-Type", b"application/json")
             self.wrapped_consumer.write(bytes(content_type) + CRLF)
 
-            json_field = json.dumps(self.json_field)
-            json_bytes = json_field.encode("utf-8")
+            json_bytes = json_encoder.encode_bytes(self.json_field)
             self.wrapped_consumer.write(CRLF + json_bytes)
             self.wrapped_consumer.write(CRLF + b"--" + self.boundary + CRLF)
 
@@ -629,8 +627,7 @@ class MultipartFileConsumer:
         if self.length is None:
             return None
         # calculate length of json field and content-type, disposition headers
-        json_field = json.dumps(self.json_field)
-        json_bytes = json_field.encode("utf-8")
+        json_bytes = json_encoder.encode_bytes(self.json_field)
         json_length = len(json_bytes)
 
         type = self.file_content_type.encode("utf-8")
