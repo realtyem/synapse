@@ -22,6 +22,7 @@
 import collections.abc
 import json
 import logging
+import math
 import typing
 from typing import (
     Any,
@@ -85,16 +86,139 @@ def _handle_immutabledict(obj: Any) -> Dict[Any, Any]:
     )
 
 
-# A custom JSON encoder which:
-#   * handles immutabledicts
-#   * produces valid JSON (no NaNs etc)
-#   * reduces redundant whitespace
-json_encoder = json.JSONEncoder(
-    allow_nan=False, separators=(",", ":"), default=_handle_immutabledict
-)
+def check_for_nan_and_inf(data: object) -> None:
+    """
+    Recursively checks for NaN and Inf values in a dictionary or list.
+    Raises ValueError if found.
+    """
+    if isinstance(data, dict):
+        for value in data.values():
+            check_for_nan_and_inf(value)
+    elif isinstance(data, list):
+        for item in data:
+            check_for_nan_and_inf(item)
+    elif isinstance(data, float):
+        if math.isnan(data) or math.isinf(data):
+            raise ValueError
+    return None
 
-# Create a custom decoder to reject Python extensions to JSON.
-json_decoder = json.JSONDecoder(parse_constant=_reject_invalid_json)
+
+class SynapseJSONEncoder:
+    """
+    A custom JSON encoder which:
+      * handles immutabledicts
+      * produces valid JSON (no NaNs etc)
+      * reduces redundant whitespace
+      * can optionally use rust-based json handling with 'orjson'
+    """
+
+    def __init__(self) -> None:
+        try:
+            import orjson
+        except ImportError:
+            orjson = None  # type: ignore[assignment]
+        self._orjson = orjson
+        self._json_encoder = json.JSONEncoder(
+            allow_nan=False, separators=(",", ":"), default=_handle_immutabledict
+        )
+
+    def encode(self, data: object, encoding: str = "utf-8") -> str:
+        """
+        Convert a python object to a json-encoded string.
+
+        Orjson will encode to bytes by default, so this will run a string-decode before
+        returning. If you need bytes for your string, check encode_bytes() instead
+
+        Args:
+            data:
+            encoding: "utf-8" by default
+
+        Returns: A string of json, with all whitespace around separators removed
+
+        """
+        if self._orjson:
+            # Raise if data is or recursively contains nan or inf
+            check_for_nan_and_inf(data)
+            # Returns a byte string by default, so decode that into a python string
+            return self._orjson.dumps(data, default=_handle_immutabledict).decode(
+                encoding
+            )
+        return self._json_encoder.encode(data)
+
+    def encode_bytes(self, data: object, encoding: str = "utf-8") -> bytes:
+        """
+        Convert a python object to a json-encoded byte string.
+
+        stdlib json will encode to str by default, so this will run a byte string-encode before
+        returning. If you need str for your string, check encode() instead
+
+        Args:
+            data:
+            encoding: "utf-8" by default
+
+        Returns: A byte string of json, with all whitespace around separators removed
+
+        """
+        if self._orjson:
+            # Raise if data is or recursively contains nan or inf
+            check_for_nan_and_inf(data)
+            # Returns a byte string by default
+            return self._orjson.dumps(data, default=_handle_immutabledict)
+
+        # In order to return as bytes, need to convert
+        return self._json_encoder.encode(data).encode(encoding)
+
+    def iterencode(self, data: object) -> Iterator[str]:
+        """
+        Pass through support for stdlib json's iterencode function. Orjson does not
+        support such a thing by default.
+        Args:
+            data:
+
+        Returns:
+
+        """
+        return self._json_encoder.iterencode(data)
+
+
+class SynapseJSONDecoder:
+    """
+    A custom json decoder to reject Python extensions to JSON.
+      * can optionally use rust-based json handling with 'orjson'
+
+    """
+    def __init__(self) -> None:
+        try:
+            import orjson
+        except ImportError:
+            orjson = None  # type: ignore[assignment]
+        self._orjson = orjson
+        self._json_decoder = json.JSONDecoder(parse_constant=_reject_invalid_json)
+
+    def decode(
+        self, json_str_like: typing.Union[bytes, str], encoding: str = "utf-8"
+    ) -> Any:
+        """
+        Convert a string or byte string to an appropriate python object.
+
+        Args:
+            json_str_like:
+            encoding: "utf-8" by default
+
+        Returns: A python object, depending on what was provided
+
+        """
+        # orjson loads also supports bytearrays and memoryview. Synapse does not
+        # seem to use those
+        if self._orjson:
+            return self._orjson.loads(json_str_like)
+        if isinstance(json_str_like, bytes):
+            json_str_like = json_str_like.decode(encoding)
+        return self._json_decoder.decode(json_str_like)
+
+
+json_encoder = SynapseJSONEncoder()
+json_decoder = SynapseJSONDecoder()
 
 
 def unwrapFirstError(failure: Failure) -> Failure:
