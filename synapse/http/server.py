@@ -75,7 +75,7 @@ from synapse.api.errors import (
     UnrecognizedRequestError,
 )
 from synapse.config.homeserver import HomeServerConfig
-from synapse.logging.context import defer_to_thread, preserve_fn, run_in_background
+from synapse.logging.context import defer_to_thread, preserve_fn
 from synapse.logging.opentracing import active_span, start_active_span, trace_servlet
 from synapse.util import Clock, json_encoder
 from synapse.util.caches import intern_dict
@@ -836,9 +836,12 @@ def respond_with_json(
     if send_cors:
         set_cors_headers(request)
 
-    run_in_background(
-        _async_write_json_to_request_in_thread, request, encoder, json_object
-    )
+    json_str = encoder(json_object)
+    _write_bytes_to_request(request, json_str)
+
+    # run_in_background(
+    #     _async_write_json_to_request_in_thread, request, encoder, json_object
+    # )
     return NOT_DONE_YET
 
 
