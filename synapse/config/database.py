@@ -57,13 +57,23 @@ class DatabaseConnectionConfig:
     def __init__(self, name: str, db_config: dict):
         db_engine = db_config.get("name", "sqlite3")
 
-        if db_engine not in ("sqlite3", "psycopg2", "psycopg"):
+        if db_engine not in ("sqlite3", "psycopg2", "postgres"):
             raise ConfigError("Unsupported database type %r" % (db_engine,))
 
         if db_engine == "sqlite3":
+            db_config["driver"] = "sqlite3"
             db_config.setdefault("args", {}).update(
                 {"cp_min": 1, "cp_max": 1, "check_same_thread": False}
             )
+
+        # Allow for a generic "postgres". Then, can specify a driver directly to
+        # override. For backwards compatibility, allow this to remain "psycopg2" for
+        # now. Setting the driver below is the important detail.
+        elif db_engine in ("postgres", "psycopg2"):
+            # Default to "psycopg2"
+            db_driver = db_config.setdefault("driver", "psycopg2")
+            if db_driver not in ("psycopg2", "psycopg"):
+                raise ConfigError("Unsupported database driver %r" % (db_driver,))
 
         data_stores = db_config.get("data_stores")
         if data_stores is None:

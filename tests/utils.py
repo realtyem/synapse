@@ -75,9 +75,9 @@ def setupdb() -> None:
     if USE_POSTGRES_FOR_TESTS:
         # create a PostgresEngine
         if USE_POSTGRES_FOR_TESTS == "psycopg":
-            db_engine = create_engine({"name": "psycopg", "args": {}})
+            db_engine = create_engine({"driver": "psycopg", "args": {}})
         else:
-            db_engine = create_engine({"name": "psycopg2", "args": {}})
+            db_engine = create_engine({"driver": "psycopg2", "args": {}})
         # connect to postgres to create the base database.
         db_conn = db_engine.module.connect(
             user=POSTGRES_USER,

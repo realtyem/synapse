@@ -62,18 +62,18 @@ except ImportError:
 
 
 def create_engine(database_config: Mapping[str, Any]) -> BaseDatabaseEngine:
-    name = database_config["name"]
+    driver = database_config["driver"]
 
-    if name == "sqlite3":
+    if driver == "sqlite3":
         return Sqlite3Engine(database_config)
 
-    if name == "psycopg2":
+    if driver == "psycopg2":
         return Psycopg2Engine(database_config)
 
-    if name == "psycopg":
+    if driver == "psycopg":
         return PsycopgEngine(database_config)
 
-    raise RuntimeError("Unsupported database engine '%s'" % (name,))
+    raise RuntimeError("Unsupported database engine '%s'" % (driver,))
 
 
 __all__ = [

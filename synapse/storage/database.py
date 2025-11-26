@@ -159,7 +159,7 @@ def make_pool(
             )
 
     connection_pool = adbapi.ConnectionPool(
-        db_config.config["name"],
+        db_config.config["driver"],
         cp_reactor=reactor,
         cp_openfun=_on_new_connection,
         **db_args,

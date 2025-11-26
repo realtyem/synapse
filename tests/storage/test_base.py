@@ -100,11 +100,11 @@ class SQLBaseStoreTestCase(unittest.TestCase):
         hs = TestHomeServer("test", config=config)
 
         if USE_POSTGRES_FOR_TESTS == "psycopg":
-            db_config = {"name": "psycopg", "args": {}}
+            db_config = {"driver": "psycopg", "args": {}}
         elif USE_POSTGRES_FOR_TESTS:
-            db_config = {"name": "psycopg2", "args": {}}
+            db_config = {"driver": "psycopg2", "args": {}}
         else:
-            db_config = {"name": "sqlite3"}
+            db_config = {"driver": "sqlite3"}
         engine = create_engine(db_config)
 
         fake_engine = Mock(wraps=engine)

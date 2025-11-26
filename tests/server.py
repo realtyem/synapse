@@ -1118,7 +1118,8 @@ def setup_test_homeserver(
             db_type = "psycopg2"
 
         database_config: JsonDict = {
-            "name": db_type,
+            "name": "postgres",
+            "driver": db_type,
             "args": {
                 "dbname": test_db,
                 "host": POSTGRES_HOST,
@@ -1146,6 +1147,7 @@ def setup_test_homeserver(
 
         database_config = {
             "name": "sqlite3",
+            "driver": "sqlite3",
             "args": {"database": test_db_location, "cp_min": 1, "cp_max": 1},
         }
 
