@@ -270,8 +270,13 @@ main() {
     # Pass through the workers defined. If none, it will be an empty string
     export PASS_SYNAPSE_WORKER_TYPES="$WORKER_TYPES"
 
-    # Workers can only use Postgres as a database.
-    export PASS_SYNAPSE_COMPLEMENT_DATABASE=postgres
+    # Workers can only use Postgres as a database. If a specific driver is
+    # not requested, fallback to psycopg2 as a default
+    if [[ "$POSTGRES" = "psycopg" ]]; then
+      export PASS_SYNAPSE_COMPLEMENT_DATABASE=psycopg
+    else
+      export PASS_SYNAPSE_COMPLEMENT_DATABASE=psycopg2
+    fi
 
     # And provide some more configuration to complement.
 
@@ -284,7 +289,7 @@ main() {
     if [[ "$POSTGRES" = "psycopg" ]]; then
       export PASS_SYNAPSE_COMPLEMENT_DATABASE=psycopg
     elif [[ -n "$POSTGRES" ]]; then
-      export PASS_SYNAPSE_COMPLEMENT_DATABASE=postgres
+      export PASS_SYNAPSE_COMPLEMENT_DATABASE=psycopg2
     else
       export PASS_SYNAPSE_COMPLEMENT_DATABASE=sqlite
     fi

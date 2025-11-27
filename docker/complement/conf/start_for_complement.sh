@@ -21,7 +21,7 @@ export SYNAPSE_REPORT_STATS=no
 
 
 case "$SYNAPSE_COMPLEMENT_DATABASE" in
-  postgres)
+  psycopg2)
     # Set postgres authentication details which will be placed in the homeserver config file
     export POSTGRES_DRIVER=psycopg2
     export POSTGRES_PASSWORD=somesecret

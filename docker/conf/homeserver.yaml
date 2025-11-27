@@ -57,7 +57,8 @@ listeners:
 
 {% if POSTGRES_PASSWORD %}
 database:
-  name: "{{ POSTGRES_DRIVER or "psycopg2" }}"
+  name: "postgres"
+  driver: "{{ POSTGRES_DRIVER or "psycopg2" }}"
   args:
     user: "{{ POSTGRES_USER or "synapse" }}"
     password: "{{ POSTGRES_PASSWORD }}"
