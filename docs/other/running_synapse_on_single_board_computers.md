@@ -47,7 +47,7 @@ limit_remote_rooms:
 # Database configuration
 database:
   # Use postgres for the best performance
-  name: psycopg2
+  name: postgres
   args:
     user: matrix-synapse
     # Generate a long, secure password using a password manager

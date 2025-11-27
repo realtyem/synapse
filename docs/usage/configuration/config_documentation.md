@@ -1466,7 +1466,9 @@ For more information on using Synapse with Postgres, see [here](../../postgres.m
 
 This setting has the following sub-options:
 
-* `name` (string): This option specifies the database engine to use: either `sqlite3` (for SQLite) or `psycopg2` (for PostgreSQL). `psycopg` references the experimental psycopg3 driver, which may be used as a drop in replacement  for `psycopg2`. If no name is specified Synapse will default to SQLite. Defaults to `"sqlite3"`.
+* `name` (string): This option specifies the database engine to use: either `sqlite3` (for SQLite) or `postgres` (for PostgreSQL). `psycopg2` can be used for backwards compatibility for a specific driver. See the 'driver' section for more information. If no name is specified Synapse will default to SQLite. Defaults to `"sqlite3"`.
+
+* `driver` (string): The specific database library "driver" to use. The default for the SQLite based system is `sqlite3`. The default for the PostgreSQL based system is `psycopg2`. `psycopg` references the experimental psycopg3 driver, which may be used as a drop in replacement for `psycopg2`. This setting is not required as the `name` setting guides its default. Only set and change this if you know what you are doing!
 
 * `txn_limit` (integer): Gives the maximum number of transactions to run per connection before reconnecting. 0 means no limit. Defaults to `0`.
 
@@ -1487,8 +1489,22 @@ database:
 
 ```yaml
 database:
-  name: psycopg2
+  name: postgres
   txn_limit: 10000
+  args:
+    user: synapse_user
+    password: secretpassword
+    dbname: synapse
+    host: localhost
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+```
+
+```yaml
+database:
+  name: postgres
+  driver: psycopg
   args:
     user: synapse_user
     password: secretpassword
@@ -1550,7 +1566,7 @@ Example configuration:
 ```yaml
 databases:
   basement_box:
-    name: psycopg2
+    name: postgres
     txn_limit: 10000
     data_stores:
     - main
@@ -1563,7 +1579,7 @@ databases:
       cp_min: 5
       cp_max: 10
   my_other_database:
-    name: psycopg2
+    name: postgres
     txn_limit: 10000
     data_stores:
     - state

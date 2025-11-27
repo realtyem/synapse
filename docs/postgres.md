@@ -62,7 +62,7 @@ section in your config file to match the following lines:
 
 ```yaml
 database:
-  name: psycopg2
+  name: postgres
   args:
     user: <user>
     password: <pass>
@@ -72,7 +72,7 @@ database:
     cp_max: 10
 ```
 
-All key, values in `args` are passed to the `psycopg2.connect(..)`
+All key, values in `args` are passed to the appropriate modules `connect()`
 function, except keys beginning with `cp_`, which are consumed by the
 twisted adbapi connection pool. See the [libpq
 documentation](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS)
