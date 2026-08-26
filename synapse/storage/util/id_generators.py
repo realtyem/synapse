@@ -579,6 +579,7 @@ class MultiWriterIdGenerator(AbstractStreamIdGenerator):
                 self._db.runInteraction,
                 "MultiWriterIdGenerator._update_table",
                 self._update_stream_positions_table_txn,
+                [next_id],
             )
 
         return self._return_factor * next_id
@@ -626,6 +627,7 @@ class MultiWriterIdGenerator(AbstractStreamIdGenerator):
                 self._db.runInteraction,
                 "MultiWriterIdGenerator._update_table",
                 self._update_stream_positions_table_txn,
+                next_ids,
             )
 
         return [self._return_factor * next_id for next_id in next_ids]
@@ -846,7 +848,9 @@ class MultiWriterIdGenerator(AbstractStreamIdGenerator):
                 min_curr,
             )
 
-    def _update_stream_positions_table_txn(self, txn: Cursor) -> None:
+    def _update_stream_positions_table_txn(
+        self, txn: Cursor, ids_finished_iter: Iterable[int]
+    ) -> None:
         """Update the `stream_positions` table with newly persisted position."""
 
         if not self._writers:
@@ -866,7 +870,13 @@ class MultiWriterIdGenerator(AbstractStreamIdGenerator):
         """
 
         pos = self.get_current_token_for_writer(self._instance_name)
-        txn.execute(sql, (self._stream_name, self._instance_name, pos))
+        if self._positive:
+            do_upsert = any(x > pos for x in ids_finished_iter)
+        else:
+            do_upsert = any(x < pos for x in ids_finished_iter)
+
+        if do_upsert:
+            txn.execute(sql, (self._stream_name, self._instance_name, pos))
 
     async def get_max_allocated_token(self) -> int:
         return await self._db.runInteraction(
@@ -978,6 +988,7 @@ class _MultiWriterCtxManager:
             await self.id_gen._db.runInteraction(
                 "MultiWriterIdGenerator._update_table",
                 self.id_gen._update_stream_positions_table_txn,
+                self.stream_ids,
                 db_autocommit=True,
             )
 
